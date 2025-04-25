@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "module": "commonjs",
+    "target": "es2020",
+    "moduleResolution": "node",
+    "outDir": "./dist"
+  }
+}

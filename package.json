@@ -1,0 +1,21 @@
+{
+  "name": "lukaya",
+  "version": "1.0.0",
+  "description": "Trading bot for DYDX using actor model",
+  "type": "module",
+  "bin": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "bun run src/main.ts",
+    "start": "bun run dist/main.js"
+  },
+  "dependencies": {
+    "@dydxprotocol/v4-client-js": "1.21.3",
+    "zod": "3.22.4"
+  },
+  "devDependencies": {
+    "lodash": "4.17.21",
+    "typescript": "5.8.2",
+    "@types/bun": "1.0.6"
+  }
+}
