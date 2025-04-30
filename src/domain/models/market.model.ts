@@ -35,7 +35,7 @@ export interface OrderParams {
   timeInForce?: TimeInForce;
   reduceOnly?: boolean;
   postOnly?: boolean;
-  clientId?: string;
+  clientId?: number;
 }
 
 export interface Order extends OrderParams {

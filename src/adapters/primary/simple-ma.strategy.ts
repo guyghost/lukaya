@@ -18,138 +18,141 @@ interface SimpleMAConfig {
   positionSize: number;
 }
 
-export class SimpleMAStrategy implements Strategy {
-  private id: string;
-  private name: string;
-  private config: SimpleMAConfig;
-  private priceHistory: number[] = [];
-  private position: "none" | "long" | "short" = "none";
+interface SimpleMAState {
+  priceHistory: number[];
+  position: "none" | "long" | "short";
+}
 
-  constructor(config: SimpleMAConfig) {
-    this.id = `simple-ma-${config.shortPeriod}-${config.longPeriod}-${config.symbol}`;
-    this.name = `Simple Moving Average (${config.shortPeriod}/${config.longPeriod})`;
-    this.config = config;
-  }
+export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
+  // Create strategy state
+  const state: SimpleMAState = {
+    priceHistory: [],
+    position: "none"
+  };
+  
+  // Generate unique ID and name for the strategy
+  const id = `simple-ma-${config.shortPeriod}-${config.longPeriod}-${config.symbol}`;
+  const name = `Simple Moving Average (${config.shortPeriod}/${config.longPeriod})`;
+  
+  // Helper function to calculate moving average
+  const calculateMA = (period: number, offset: number = 0): number => {
+    if (state.priceHistory.length < period + offset) return 0;
 
-  getId(): string {
-    return this.id;
-  }
-
-  getName(): string {
-    return this.name;
-  }
-
-  getConfig(): StrategyConfig {
-    return {
-      id: this.id,
-      name: this.name,
-      description: `Simple moving average crossover strategy using ${this.config.shortPeriod} and ${this.config.longPeriod} periods`,
-      parameters: this.config as unknown as Record<string, unknown>,
-    };
-  }
-
-  async processMarketData(data: MarketData): Promise<StrategySignal | null> {
-    if (data.symbol !== this.config.symbol) return null;
-
-    // Add price to history
-    this.priceHistory.push(data.price);
-
-    // Keep only the required data points
-    const requiredLength = Math.max(this.config.shortPeriod, this.config.longPeriod);
-    if (this.priceHistory.length > requiredLength) {
-      this.priceHistory = this.priceHistory.slice(-requiredLength);
-    }
-
-    // Not enough data yet
-    if (this.priceHistory.length < requiredLength) {
-      return null;
-    }
-
-    // Calculate moving averages
-    const shortMA = this.calculateMA(this.config.shortPeriod);
-    const longMA = this.calculateMA(this.config.longPeriod);
-
-    // Previous moving averages (from one data point ago)
-    const prevShortMA = this.calculateMA(this.config.shortPeriod, 1);
-    const prevLongMA = this.calculateMA(this.config.longPeriod, 1);
-
-    // Check for crossovers
-    if (shortMA > longMA && prevShortMA <= prevLongMA) {
-      // Bullish crossover
-      if (this.position === "short") {
-        // Close short position first
-        const exitSignal: StrategySignal = {
-          type: "exit",
-          direction: "short",
-          price: data.price,
-          reason: "Moving average bullish crossover",
-        };
-        this.position = "none";
-        return exitSignal;
-      } else if (this.position === "none") {
-        // Enter long position
-        const entrySignal: StrategySignal = {
-          type: "entry",
-          direction: "long",
-          price: data.price,
-          reason: "Moving average bullish crossover",
-        };
-        this.position = "long";
-        return entrySignal;
-      }
-    } else if (shortMA < longMA && prevShortMA >= prevLongMA) {
-      // Bearish crossover
-      if (this.position === "long") {
-        // Close long position first
-        const exitSignal: StrategySignal = {
-          type: "exit",
-          direction: "long",
-          price: data.price,
-          reason: "Moving average bearish crossover",
-        };
-        this.position = "none";
-        return exitSignal;
-      } else if (this.position === "none") {
-        // Enter short position
-        const entrySignal: StrategySignal = {
-          type: "entry",
-          direction: "short",
-          price: data.price,
-          reason: "Moving average bearish crossover",
-        };
-        this.position = "short";
-        return entrySignal;
-      }
-    }
-
-    return null;
-  }
-
-  generateOrder(signal: StrategySignal, marketData: MarketData): OrderParams | null {
-    if (marketData.symbol !== this.config.symbol) return null;
-
-    const orderSide = 
-      (signal.type === "entry" && signal.direction === "long") || 
-      (signal.type === "exit" && signal.direction === "short") 
-        ? OrderSide.BUY 
-        : OrderSide.SELL;
-
-    return {
-      symbol: this.config.symbol,
-      side: orderSide,
-      type: OrderType.MARKET,
-      size: this.config.positionSize,
-      timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL,
-    };
-  }
-
-  private calculateMA(period: number, offset: number = 0): number {
-    if (this.priceHistory.length < period + offset) return 0;
-
-    const relevantPrices = this.priceHistory
-      .slice(-(period + offset), this.priceHistory.length - offset);
+    const relevantPrices = state.priceHistory
+      .slice(-(period + offset), state.priceHistory.length - offset);
 
     const sum = relevantPrices.reduce((acc, price) => acc + price, 0);
     return sum / period;
-  }
-}
+  };
+  
+  // Return the strategy implementation
+  return {
+    getId: (): string => id,
+    
+    getName: (): string => name,
+    
+    getConfig: (): StrategyConfig => {
+      return {
+        id,
+        name,
+        description: `Simple moving average crossover strategy using ${config.shortPeriod} and ${config.longPeriod} periods`,
+        parameters: config as unknown as Record<string, unknown>,
+      };
+    },
+    
+    processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
+      if (data.symbol !== config.symbol) return null;
+
+      // Add price to history
+      state.priceHistory.push(data.price);
+
+      // Keep only the required data points
+      const requiredLength = Math.max(config.shortPeriod, config.longPeriod);
+      if (state.priceHistory.length > requiredLength) {
+        state.priceHistory = state.priceHistory.slice(-requiredLength);
+      }
+
+      // Not enough data yet
+      if (state.priceHistory.length < requiredLength) {
+        return null;
+      }
+
+      // Calculate moving averages
+      const shortMA = calculateMA(config.shortPeriod);
+      const longMA = calculateMA(config.longPeriod);
+
+      // Previous moving averages (from one data point ago)
+      const prevShortMA = calculateMA(config.shortPeriod, 1);
+      const prevLongMA = calculateMA(config.longPeriod, 1);
+
+      // Check for crossovers
+      if (shortMA > longMA && prevShortMA <= prevLongMA) {
+        // Bullish crossover
+        if (state.position === "short") {
+          // Close short position first
+          const exitSignal: StrategySignal = {
+            type: "exit",
+            direction: "short",
+            price: data.price,
+            reason: "Moving average bullish crossover",
+          };
+          state.position = "none";
+          return exitSignal;
+        } else if (state.position === "none") {
+          // Enter long position
+          const entrySignal: StrategySignal = {
+            type: "entry",
+            direction: "long",
+            price: data.price,
+            reason: "Moving average bullish crossover",
+          };
+          state.position = "long";
+          return entrySignal;
+        }
+      } else if (shortMA < longMA && prevShortMA >= prevLongMA) {
+        // Bearish crossover
+        if (state.position === "long") {
+          // Close long position first
+          const exitSignal: StrategySignal = {
+            type: "exit",
+            direction: "long",
+            price: data.price,
+            reason: "Moving average bearish crossover",
+          };
+          state.position = "none";
+          return exitSignal;
+        } else if (state.position === "none") {
+          // Enter short position
+          const entrySignal: StrategySignal = {
+            type: "entry",
+            direction: "short",
+            price: data.price,
+            reason: "Moving average bearish crossover",
+          };
+          state.position = "short";
+          return entrySignal;
+        }
+      }
+
+      return null;
+    },
+    
+    generateOrder: (signal: StrategySignal, marketData: MarketData): OrderParams | null => {
+      if (marketData.symbol !== config.symbol) return null;
+
+      const orderSide = 
+        (signal.type === "entry" && signal.direction === "long") || 
+        (signal.type === "exit" && signal.direction === "short") 
+          ? OrderSide.BUY 
+          : OrderSide.SELL;
+
+      return {
+        symbol: config.symbol,
+        side: orderSide,
+        type: OrderType.MARKET,
+        size: config.positionSize,
+        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL,
+      };
+    }
+  };
+};

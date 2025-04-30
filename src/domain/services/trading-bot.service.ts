@@ -1,25 +1,23 @@
-import { ActorContext, ActorMessage, ActorAddress } from "../../actor/models/actor.model";
+import { ActorContext, ActorMessage } from "../../actor/models/actor.model";
 import { createActorSystem } from "../../actor/system";
-import { MarketDataPort } from "../ports/market-data.port";
-import { TradingPort } from "../ports/trading.port";
+import { MarketDataPort } from "../../application/ports/market-data.port";
+import { TradingPort } from "../../application/ports/trading.port";
 import { createStrategyService, StrategyService } from "../../domain/services/strategy.service";
 import { Strategy } from "../../domain/models/strategy.model";
 import { MarketData, Order } from "../../domain/models/market.model";
 import { getLogger } from "../../infrastructure/logger";
-import { createMarketActorDefinition } from "../actors/market.actor";
 
 type TradingBotMessage = 
   | { type: "START" }
   | { type: "STOP" }
-  | { type: "ADD_STRATEGY"; strategy: Strategy }
-  | { type: "REMOVE_STRATEGY"; strategyId: string }
-  | { type: "MARKET_DATA"; data: MarketData }
-  | { type: "ORDER_PLACED"; order: Order };
+  | { type: "ADD_STRATEGY", strategy: Strategy }
+  | { type: "REMOVE_STRATEGY", strategyId: string }
+  | { type: "MARKET_DATA", data: MarketData };
 
 interface TradingBotState {
   isRunning: boolean;
   strategyService: StrategyService;
-  marketActors: Map<string, ActorAddress>;
+  subscribedSymbols: Set<string>;
   orderHistory: Order[];
 }
 
@@ -32,8 +30,7 @@ export interface TradingBotService {
 
 export const createTradingBotService = (
   marketDataPort: MarketDataPort, 
-  tradingPort: TradingPort,
-  options = { pollInterval: 5000 }
+  tradingPort: TradingPort
 ): TradingBotService => {
   const logger = getLogger();
   const actorSystem = createActorSystem();
@@ -41,7 +38,7 @@ export const createTradingBotService = (
   const initialState: TradingBotState = {
     isRunning: false,
     strategyService: createStrategyService(),
-    marketActors: new Map(),
+    subscribedSymbols: new Set(),
     orderHistory: [],
   };
 
@@ -56,23 +53,11 @@ export const createTradingBotService = (
     switch (payload.type) {
       case "START": {
         logger.info("Starting trading bot...");
-        
-        // Start all existing market actors if they exist
-        for (const [symbol, actorAddress] of state.marketActors.entries()) {
-          actorSystem.send(actorAddress, { type: "SUBSCRIBE", symbol });
-        }
-        
         return { state: { ...state, isRunning: true } };
       }
 
       case "STOP": {
         logger.info("Stopping trading bot...");
-        
-        // Stop all market actors
-        for (const [symbol, actorAddress] of state.marketActors.entries()) {
-          actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
-        }
-        
         return { state: { ...state, isRunning: false } };
       }
 
@@ -80,35 +65,14 @@ export const createTradingBotService = (
         const { strategy } = payload;
         logger.info(`Adding strategy: ${strategy.getName()}`);
         
-        // Register the strategy
         state.strategyService.registerStrategy(strategy);
         
-        // Extract symbol from strategy and create/start market actor if needed
+        // Extract symbol from strategy and subscribe to market data
         const symbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
-        if (symbol) {
-          if (!state.marketActors.has(symbol)) {
-            // Create a market actor for this symbol if it doesn't exist
-            const onMarketData = (data: MarketData) => {
-              actorSystem.send(context.self, { type: "MARKET_DATA", data });
-            };
-            
-            const marketActorDef = createMarketActorDefinition(
-              symbol, 
-              marketDataPort, 
-              onMarketData, 
-              options.pollInterval
-            );
-            
-            const marketActorAddress = actorSystem.createActor(marketActorDef);
-            state.marketActors.set(symbol, marketActorAddress);
-            
-            // If the bot is running, subscribe to the market immediately
-            if (state.isRunning) {
-              actorSystem.send(marketActorAddress, { type: "SUBSCRIBE", symbol });
-            }
-            
-            logger.debug(`Created market actor for symbol: ${symbol}`);
-          }
+        if (symbol && !state.subscribedSymbols.has(symbol)) {
+          await marketDataPort.subscribeToMarketData(symbol);
+          state.subscribedSymbols.add(symbol);
+          logger.debug(`Subscribed to market data for symbol: ${symbol}`);
         }
         
         return { state };
@@ -124,29 +88,18 @@ export const createTradingBotService = (
           ? (strategy.getConfig().parameters as Record<string, string>).symbol 
           : undefined;
         
-        // Unregister the strategy
         state.strategyService.unregisterStrategy(strategyId);
         
-        // Check if any other strategies are using this symbol
+        // Check if we need to unsubscribe from the symbol
         if (strategySymbol) {
           const stillInUse = state.strategyService.getAllStrategies().some(s => 
             (s.getConfig().parameters as Record<string, string>).symbol === strategySymbol
           );
           
-          if (!stillInUse && state.marketActors.has(strategySymbol)) {
-            // If no other strategies are using this symbol, unsubscribe and remove the market actor
-            const actorAddress = state.marketActors.get(strategySymbol)!;
-            
-            // Unsubscribe from the market
-            actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
-            
-            // Stop the actor
-            actorSystem.stop(actorAddress);
-            
-            // Remove from our map
-            state.marketActors.delete(strategySymbol);
-            
-            logger.debug(`Removed market actor for symbol: ${strategySymbol}`);
+          if (!stillInUse) {
+            await marketDataPort.unsubscribeFromMarketData(strategySymbol);
+            state.subscribedSymbols.delete(strategySymbol);
+            logger.debug(`Unsubscribed from symbol: ${strategySymbol}`);
           }
         }
         
@@ -157,7 +110,7 @@ export const createTradingBotService = (
         if (!state.isRunning) return { state };
         
         const { data } = payload;
-        logger.debug(`Processing market data for ${data.symbol}: ${data.price}`);
+        logger.debug(`Received market data for ${data.symbol}: ${data.price}`);
         
         // Process market data through all strategies
         const signals = await state.strategyService.processMarketData(data);
@@ -166,7 +119,7 @@ export const createTradingBotService = (
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
           
-          logger.info(`Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`);
+          logger.info(`Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price}`);
           
           const order = state.strategyService.generateOrder(strategyId, signal, data);
           if (order) {
@@ -174,11 +127,7 @@ export const createTradingBotService = (
               const placedOrder = await tradingPort.placeOrder(order);
               logger.info(`Order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${order.size} @ ${order.price || 'market'}`);
               
-              // Send order placed message to self to update state
-              context.send(context.self, { 
-                type: "ORDER_PLACED", 
-                order: placedOrder 
-              });
+              state.orderHistory.push(placedOrder);
             } catch (error) {
               logger.error(`Error placing order for ${order.symbol}`, error as Error, {
                 order: JSON.stringify(order)
@@ -189,35 +138,42 @@ export const createTradingBotService = (
         
         return { state };
       }
-      
-      case "ORDER_PLACED": {
-        // Add the order to history
-        const { order } = payload;
-        state.orderHistory.push(order);
-        
-        // Keep only the last 100 orders (optional)
-        if (state.orderHistory.length > 100) {
-          state.orderHistory = state.orderHistory.slice(-100);
-        }
-        
-        return { state };
-      }
 
       default:
         return { state };
     }
   };
   
-  // Create the main bot actor
+  // Create the actor
   const botAddress = actorSystem.createActor({
     initialState,
     behavior: tradingBotBehavior,
     supervisorStrategy: { type: "restart" },
   });
 
+  // Set up market data polling for subscribed symbols
+  const pollMarketData = async () => {
+    if (!initialState.isRunning) return;
+    
+    // For each subscribed symbol, get the latest data and process it
+    for (const symbol of initialState.subscribedSymbols) {
+      try {
+        const marketData = await marketDataPort.getLatestMarketData(symbol);
+        actorSystem.send(botAddress, { type: "MARKET_DATA", data: marketData });
+      } catch (error) {
+        logger.error(`Error polling market data for ${symbol}`, error as Error);
+      }
+    }
+    
+    // Schedule next polling
+    setTimeout(pollMarketData, 5000); // Poll every 5 seconds
+  };
+
   // Public API methods
   const start = (): void => {
     actorSystem.send(botAddress, { type: "START" });
+    // Start market data polling
+    pollMarketData();
   };
 
   const stop = (): void => {
