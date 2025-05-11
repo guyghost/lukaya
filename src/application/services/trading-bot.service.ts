@@ -84,10 +84,12 @@ export const createTradingBotService = (
         state.strategyService.registerStrategy(strategy);
         
         // Extract symbol from strategy and create/start market actor if needed
+        // Each symbol has its own market actor that publishes market data
         const symbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
         if (symbol) {
           if (!state.marketActors.has(symbol)) {
             // Create a market actor for this symbol if it doesn't exist
+            // This allows multiple strategies to use the same market data for a symbol
             const onMarketData = (data: MarketData) => {
               actorSystem.send(context.self, { type: "MARKET_DATA", data });
             };
@@ -108,6 +110,8 @@ export const createTradingBotService = (
             }
             
             logger.debug(`Created market actor for symbol: ${symbol}`);
+          } else {
+            logger.debug(`Using existing market actor for symbol: ${symbol}`);
           }
         }
         
@@ -160,14 +164,16 @@ export const createTradingBotService = (
         logger.debug(`Processing market data for ${data.symbol}: ${data.price}`);
         
         // Process market data through all strategies
+        // This will automatically filter and apply only to strategies configured for this symbol
         const signals = await state.strategyService.processMarketData(data);
         
-        // Handle strategy signals
+        // Handle strategy signals for this particular symbol
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
           
           logger.info(`Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`);
           
+          // Generate order for the specific strategy that produced the signal
           const order = state.strategyService.generateOrder(strategyId, signal, data);
           if (order) {
             try {
@@ -208,7 +214,8 @@ export const createTradingBotService = (
     }
   };
   
-  // Create the main bot actor
+  // Create the main bot actor that will manage all strategies and market actors
+  // The trading bot actor coordinates all the market data and strategy signals
   const botAddress = actorSystem.createActor({
     initialState,
     behavior: tradingBotBehavior,

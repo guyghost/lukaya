@@ -8,6 +8,7 @@ import {
   OrderStatus as DydxOrderStatus,
   SubaccountClient,
   OrderTimeInForce,
+  OrderFlags,
 } from "@dydxprotocol/v4-client-js";
 import { MarketDataPort } from "../../application/ports/market-data.port";
 import { TradingPort } from "../../application/ports/trading.port";
@@ -419,7 +420,7 @@ export const createDydxClient = (config: DydxClientConfig): {
 
         // If we can't find the order, create a synthetic one
         return {
-          id: clientId,
+          id: "0",
           symbol: orderParams.symbol,
           side: orderParams.side,
           type: orderParams.type,
@@ -431,7 +432,6 @@ export const createDydxClient = (config: DydxClientConfig): {
           filledSize: 0,
           reduceOnly: orderParams.reduceOnly || false,
           postOnly: orderParams.postOnly || false,
-          clientId: clientId,
         };
       } catch (error) {
         logger.error('Order placement failed:', error as Error);
@@ -439,17 +439,20 @@ export const createDydxClient = (config: DydxClientConfig): {
       }
     },
 
-    cancelOrder: async (orderId: string): Promise<boolean> => {
+    cancelOrder: async (symbol: string): Promise<boolean> => {
       try {
         const compositeClient = await getClient();
+        const subaccountClient = await getSubaccountClient();
+        const wallet = await getWallet();
+        const subaccountInfo = await getDefaultSubaccount();
         
         // Cancel order by ID
-        logger.debug(`Cancelling order ${orderId}`);
-        await compositeClient.cancelOrder(orderId);
+        logger.debug(`Cancelling order ${symbol}`);
+        await compositeClient.cancelOrder(subaccountClient, 0, OrderFlags.SHORT_TERM, symbol);
         
         return true;
       } catch (error) {
-        logger.error(`Failed to cancel order ${orderId}:`, error as Error);
+        logger.error(`Failed to cancel order ${symbol}:`, error as Error);
         return false;
       }
     },
