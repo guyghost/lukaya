@@ -21,6 +21,7 @@ interface SimpleMAConfig {
   riskPerTrade?: number;       // Pourcentage du capital à risquer par trade (0.01 = 1%)
   stopLossPercent?: number;    // Pourcentage de stop loss par rapport au prix d'entrée
   accountSize?: number;        // Taille du compte en USD (optionnel, sera récupéré dynamiquement si non fourni)
+  maxCapitalPerTrade?: number; // Pourcentage maximum du capital pour un trade (0.25 = 25%)
 }
 
 interface SimpleMAState {
@@ -49,6 +50,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
   const riskPerTrade = config.riskPerTrade || 0.01;           // 1% du capital par défaut
   const stopLossPercent = config.stopLossPercent || 0.02;     // 2% par défaut
   const defaultAccountSize = config.accountSize || 10000;     // 10000 USD par défaut si non spécifié
+  const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.25; // 25% maximum du capital par trade
   
   // Helper function to calculate moving average
   const calculateMA = (period: number, offset: number = 0): number => {
@@ -190,6 +192,15 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
         
         // Taille de la position = montant à risquer / distance jusqu'au stop loss
         positionSize = stopLossDistance > 0 ? riskAmount / stopLossDistance : 0;
+        
+        // S'assurer que la taille est proportionnelle au buying power (max 25% du capital)
+        const maxPositionValue = currentAccountSize * 0.25;
+        const calculatedPositionValue = positionSize * entryPrice;
+        
+        // Réduire la taille si elle dépasse le pourcentage maximum du capital
+        if (calculatedPositionValue > maxPositionValue) {
+          positionSize = maxPositionValue / entryPrice;
+        }
       } else {
         // Pour les ordres de sortie, utiliser la même taille que l'entrée
         positionSize = config.positionSize;
@@ -237,7 +248,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
         side: orderSide,
         type: OrderType.MARKET, 
         size: adjustedSize,
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL,
+        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL
       };
       
       return orderParams;

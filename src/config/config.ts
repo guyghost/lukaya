@@ -18,6 +18,9 @@ const configSchema = z.object({
     riskPerTrade: z.number().positive().default(0.01), // % du capital à risquer par trade
     stopLossPercent: z.number().positive().default(0.02), // % de stop loss
     defaultAccountSize: z.number().positive().default(10000), // taille du compte par défaut
+    maxCapitalPerTrade: z.number().positive().default(0.25), // % maximum du capital par trade
+    maxFundsPerOrder: z.number().positive().default(0.25), // % maximum des fonds disponibles par ordre
+    positionAnalysisInterval: z.number().positive().default(300000), // intervalle d'analyse des positions (ms)
   }),
   strategies: z
     .array(
@@ -62,6 +65,9 @@ export const loadConfig = (): ConfigType => {
       riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
       stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
       defaultAccountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+      maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+      maxFundsPerOrder: Number(process.env.MAX_FUNDS_PER_ORDER || 0.25),
+      positionAnalysisInterval: Number(process.env.POSITION_ANALYSIS_INTERVAL || 300000),
     },
     strategies: process.env.DEFAULT_SYMBOLS
       ? process.env.DEFAULT_SYMBOLS.split(",").map((symbol) => ({
@@ -77,6 +83,7 @@ export const loadConfig = (): ConfigType => {
             riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
             stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
             accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+            maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
           },
         }))
       : [
@@ -93,6 +100,7 @@ export const loadConfig = (): ConfigType => {
               riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
               stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+              maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
             },
           },
         ],

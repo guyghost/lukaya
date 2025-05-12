@@ -5,6 +5,10 @@ import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
 import { createTradingBotService } from "./application/services/trading-bot.service";
 import { createSimpleMAStrategy } from "./adapters/primary/simple-ma.strategy";
 import { initializeLogger, getLogger } from "./infrastructure/logger";
+import { RiskManagerConfig } from "./application/actors/risk-manager/risk-manager.model";
+import { StrategyManagerConfig } from "./application/actors/strategy-manager/strategy-manager.model";
+import { PerformanceTrackerConfig } from "./application/actors/performance-tracker/performance-tracker.model";
+import { OrderSide } from "./domain/models/market.model";
 
 const main = async (): Promise<void> => {
   // Load configuration
@@ -23,12 +27,41 @@ const main = async (): Promise<void> => {
     mnemonic: config.dydx.mnemonic,
   });
   
+  // Prepare configurations for the specialized actors
+  const riskConfig: Partial<RiskManagerConfig> = {
+    maxRiskPerTrade: config.trading.riskPerTrade,
+    stopLossPercent: config.trading.stopLossPercent,
+    accountSize: config.trading.defaultAccountSize,
+    maxLeverage: config.trading.maxLeverage,
+    maxOpenPositions: 5,
+    maxPositionSize: config.trading.maxCapitalPerTrade
+  };
+  
+  const strategyConfig: Partial<StrategyManagerConfig> = {
+    autoAdjustWeights: true,
+    maxActiveStrategies: 10,
+    conflictResolutionMode: 'performance_weighted'
+  };
+  
+  const performanceConfig: Partial<PerformanceTrackerConfig> = {
+    historyLength: 1000,
+    trackOpenPositions: true,
+    realTimeUpdates: true
+  };
+
   // Initialize trading bot service with separate ports using factory function
   logger.debug("Setting up trading bot service...");
   const tradingBot = createTradingBotService(
     marketDataPort, 
     tradingPort,
-    { pollInterval: config.trading.pollInterval }
+    { 
+      pollInterval: config.trading.pollInterval,
+      positionAnalysisInterval: config.trading.positionAnalysisInterval,
+      maxFundsPerOrder: config.trading.maxFundsPerOrder,
+      riskConfig,
+      strategyConfig,
+      performanceConfig
+    }
   );
   
   // Initialize and add strategies
@@ -63,6 +96,12 @@ const main = async (): Promise<void> => {
     logger.info("Starting trading bot...");
     tradingBot.start();
     
+    // Schedule initial position analysis after 1 minute
+    setTimeout(() => {
+      logger.info("Running initial position viability analysis...");
+      tradingBot.analyzeOpenPositions();
+    }, 60 * 1000);
+    
     logger.info("Trading bot started successfully!");
   } catch (error) {
     logger.error("Failed to start trading bot", error as Error);
@@ -74,11 +113,15 @@ const main = async (): Promise<void> => {
     logger.info("Shutting down trading bot...");
     tradingBot.stop();
     
+    // Run final position analysis before shutdown
+    logger.info("Running final position viability check before shutdown...");
+    tradingBot.analyzeOpenPositions();
+    
     // Allow some time for graceful shutdown
     setTimeout(() => {
       logger.info("Trading bot shutdown complete");
       process.exit(0);
-    }, 1000);
+    }, 3000); // Extended timeout to allow for final analysis
   });
   
   process.on("uncaughtException", (error) => {
