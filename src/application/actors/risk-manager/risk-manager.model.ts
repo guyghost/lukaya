@@ -60,7 +60,8 @@ export type RiskManagerMessage =
   | { type: 'GET_ACCOUNT_RISK' }
   | { type: 'REBALANCE_PORTFOLIO' }
   | { type: 'ANALYZE_OPEN_POSITIONS' }
-  | { type: 'CHECK_POSITION_VIABILITY'; symbol: string; currentPrice: number };
+  | { type: 'CHECK_POSITION_VIABILITY'; symbol: string; currentPrice: number }
+  | { type: 'CLOSE_POSITION'; symbol: string; reason: string };
 
 export interface RiskManagerState {
   config: RiskManagerConfig;
@@ -77,6 +78,8 @@ export interface PositionViabilityResult {
   recommendation: string;
   riskLevel: RiskLevel;
   shouldClose: boolean;
+  direction?: 'long' | 'short' | 'none';
+  size?: number;
 }
 
 export interface RiskManagerPort {

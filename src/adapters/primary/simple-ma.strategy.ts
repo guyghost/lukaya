@@ -22,6 +22,7 @@ interface SimpleMAConfig {
   stopLossPercent?: number;    // Pourcentage de stop loss par rapport au prix d'entrée
   accountSize?: number;        // Taille du compte en USD (optionnel, sera récupéré dynamiquement si non fourni)
   maxCapitalPerTrade?: number; // Pourcentage maximum du capital pour un trade (0.25 = 25%)
+  limitOrderBuffer?: number;   // Buffer pour les ordres limite (0.0005 = 0.05%)
 }
 
 interface SimpleMAState {
@@ -51,6 +52,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
   const stopLossPercent = config.stopLossPercent || 0.02;     // 2% par défaut
   const defaultAccountSize = config.accountSize || 10000;     // 10000 USD par défaut si non spécifié
   const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.25; // 25% maximum du capital par trade
+  const limitOrderBuffer = config.limitOrderBuffer || 0.0005; // 0.05% buffer par défaut pour les ordres limite
   
   // Helper function to calculate moving average
   const calculateMA = (period: number, offset: number = 0): number => {
@@ -242,13 +244,23 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       // Arrondir la taille à 4 décimales pour éviter les erreurs de précision
       adjustedSize = Math.floor(adjustedSize * 10000) / 10000;
       
+      // Calculer le prix limite en fonction du côté de l'ordre
+      // Pour les achats, on place légèrement au-dessus du bid (meilleure chance d'exécution)
+      // Pour les ventes, on place légèrement en-dessous du ask
+      const slippageBuffer = 0.0005; // 0.05% de buffer pour augmenter les chances d'exécution
+      const limitPrice = orderSide === OrderSide.BUY 
+        ? Math.round((marketData.bid * (1 + slippageBuffer)) * 100) / 100 // Arrondi à 2 décimales
+        : Math.round((marketData.ask * (1 - slippageBuffer)) * 100) / 100;
+      
       // Pour les ordres d'entrée, on peut aussi ajouter un stop loss automatique
       const orderParams: OrderParams = {
         symbol: config.symbol,
         side: orderSide,
-        type: OrderType.MARKET, 
+        type: OrderType.LIMIT, 
         size: adjustedSize,
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL
+        price: limitPrice,
+        timeInForce: TimeInForce.GOOD_TIL_CANCEL,
+        postOnly: true // Assure que l'ordre ne sera jamais exécuté comme preneur de liquidité
       };
       
       return orderParams;

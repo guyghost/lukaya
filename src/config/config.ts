@@ -21,6 +21,8 @@ const configSchema = z.object({
     maxCapitalPerTrade: z.number().positive().default(0.25), // % maximum du capital par trade
     maxFundsPerOrder: z.number().positive().default(0.25), // % maximum des fonds disponibles par ordre
     positionAnalysisInterval: z.number().positive().default(300000), // intervalle d'analyse des positions (ms)
+    limitOrderBuffer: z.number().positive().default(0.0005), // buffer pour les ordres limite (0.05%)
+    useLimitOrders: z.boolean().default(true), // utiliser des ordres limite plutôt que des ordres au marché
   }),
   strategies: z
     .array(
@@ -68,6 +70,8 @@ export const loadConfig = (): ConfigType => {
       maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
       maxFundsPerOrder: Number(process.env.MAX_FUNDS_PER_ORDER || 0.25),
       positionAnalysisInterval: Number(process.env.POSITION_ANALYSIS_INTERVAL || 300000),
+      limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+      useLimitOrders: process.env.USE_LIMIT_ORDERS !== 'false',
     },
     strategies: process.env.DEFAULT_SYMBOLS
       ? process.env.DEFAULT_SYMBOLS.split(",").map((symbol) => ({
@@ -84,6 +88,7 @@ export const loadConfig = (): ConfigType => {
             stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
             accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
             maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+            limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
           },
         }))
       : [
@@ -101,6 +106,7 @@ export const loadConfig = (): ConfigType => {
               stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+              limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
             },
           },
         ],

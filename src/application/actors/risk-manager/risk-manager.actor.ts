@@ -323,7 +323,9 @@ export const createRiskManagerActorDefinition = (
       reason: "Position is performing normally",
       recommendation: "Continue holding position",
       riskLevel: "LOW",
-      shouldClose: false
+      shouldClose: false,
+      direction: position.direction,
+      size: position.size
     };
     
     // 1. Check for stop loss breach
@@ -339,7 +341,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Stop loss triggered: Down ${(lossPercent * 100).toFixed(2)}% from entry price`,
           recommendation: "Close position immediately to prevent further losses",
           riskLevel: "EXTREME",
-          shouldClose: true
+          shouldClose: true,
+          direction: position.direction,
+          size: position.size
         };
       }
       
@@ -350,7 +354,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Near stop loss: Down ${(lossPercent * 100).toFixed(2)}% from entry price`,
           recommendation: "Monitor closely or reduce position size",
           riskLevel: "HIGH",
-          shouldClose: false
+          shouldClose: false,
+          direction: position.direction,
+          size: position.size
         };
       }
     } else if (position.direction === 'short' && priceDelta > 0) {
@@ -361,7 +367,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Stop loss triggered: Up ${(lossPercent * 100).toFixed(2)}% from entry price`,
           recommendation: "Close position immediately to prevent further losses",
           riskLevel: "EXTREME",
-          shouldClose: true
+          shouldClose: true,
+          direction: position.direction,
+          size: position.size
         };
       }
       
@@ -372,7 +380,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Near stop loss: Up ${(lossPercent * 100).toFixed(2)}% from entry price`,
           recommendation: "Monitor closely or reduce position size",
           riskLevel: "HIGH",
-          shouldClose: false
+          shouldClose: false,
+          direction: position.direction,
+          size: position.size
         };
       }
     }
@@ -386,7 +396,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Take profit level reached: ${(profitPercent * 100).toFixed(2)}% gain`,
           recommendation: "Consider taking profits or setting trailing stop",
           riskLevel: "LOW",
-          shouldClose: false
+          shouldClose: false,
+          direction: position.direction,
+          size: position.size
         };
       }
     }
@@ -402,7 +414,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Position held for ${holdingDays.toFixed(1)} days without profit`,
           recommendation: "Close position and reassess strategy",
           riskLevel: "HIGH",
-          shouldClose: true
+          shouldClose: true,
+          direction: position.direction,
+          size: position.size
         };
       }
       
@@ -414,7 +428,9 @@ export const createRiskManagerActorDefinition = (
           reason: `Position held for ${holdingDays.toFixed(1)} days with minimal profit`,
           recommendation: "Close position to free up capital for better opportunities",
           riskLevel: "MEDIUM",
-          shouldClose: true
+          shouldClose: true,
+          direction: position.direction,
+          size: position.size
         };
       }
     }
@@ -430,7 +446,9 @@ export const createRiskManagerActorDefinition = (
           reason: "Market showing signs of trend reversal with position in loss",
           recommendation: "Close position to prevent further losses",
           riskLevel: "HIGH",
-          shouldClose: true
+          shouldClose: true,
+          direction: position.direction,
+          size: position.size
         };
       }
     }
@@ -672,8 +690,15 @@ export const createRiskManagerActorDefinition = (
           const marketVolatility = state.marketVolatility[symbol] || 0;
           const analysis = analyzePositionViability(position, state.config, marketVolatility);
           
+          // Add position details to the analysis result
+          const enhancedAnalysis = {
+            ...analysis,
+            direction: position.direction,
+            size: position.size
+          };
+          
           // Store analysis result
-          positionAnalyses[symbol] = analysis;
+          positionAnalyses[symbol] = enhancedAnalysis;
           
           // Update position with viability information
           updatedPositions[symbol] = {
@@ -686,7 +711,19 @@ export const createRiskManagerActorDefinition = (
           if (!analysis.isViable && analysis.shouldClose) {
             logger.warn(`Position ${symbol} is no longer viable: ${analysis.reason}`, {
               recommendation: analysis.recommendation,
-              riskLevel: analysis.riskLevel
+              riskLevel: analysis.riskLevel,
+              direction: position.direction,
+              size: position.size
+            });
+            
+            // Send position viability result to trading bot for action
+            context.send(message.sender, {
+              type: "POSITION_VIABILITY_RESULT",
+              symbol,
+              isViable: analysis.isViable,
+              reason: analysis.reason,
+              shouldClose: analysis.shouldClose,
+              direction: position.direction
             });
           }
         }
@@ -720,6 +757,13 @@ export const createRiskManagerActorDefinition = (
         const marketVolatility = state.marketVolatility[symbol] || 0;
         const analysis = analyzePositionViability(updatedPosition, state.config, marketVolatility);
         
+        // Add position details to the analysis result
+        const enhancedAnalysis = {
+          ...analysis,
+          direction: position.direction,
+          size: position.size
+        };
+        
         // Update position with viability information
         const positionsWithViability = {
           ...state.positions,
@@ -735,7 +779,19 @@ export const createRiskManagerActorDefinition = (
           logger.warn(`Position ${symbol} viability check: ${analysis.reason}`, {
             recommendation: analysis.recommendation,
             riskLevel: analysis.riskLevel,
-            shouldClose: analysis.shouldClose
+            shouldClose: analysis.shouldClose,
+            direction: position.direction,
+            size: position.size
+          });
+          
+          // Send position viability result to message sender for action
+          context.send(message.sender, {
+            type: "POSITION_VIABILITY_RESULT",
+            symbol,
+            isViable: analysis.isViable,
+            reason: analysis.reason,
+            shouldClose: analysis.shouldClose,
+            direction: position.direction
           });
         } else {
           logger.debug(`Position ${symbol} is viable: ${analysis.reason}`);
