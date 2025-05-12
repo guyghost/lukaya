@@ -78,6 +78,7 @@ const checkBuyingPower = async (
     const balances = await tradingPort.getAccountBalance();
     // Get all relevant balances (USDC for buying power, asset balance for selling)
     const availableUSDC = balances["USDC"] || 0;
+    const assetBalance = balances[order.symbol.split("-")[0]] || 0;
     const orderPrice = order.price || currentPrice;
 
     if (!orderPrice || orderPrice <= 0) {
@@ -105,13 +106,13 @@ const checkBuyingPower = async (
 
       // Make order size proportional to asset balance if it exceeds available amount
       // Use a maximum of 50% of available balance for any single order
-      const maxSellSize = availableUSDC * 0.5;
+      const maxSellSize = assetBalance * 0.5;
       let adjustedSize = order.size;
-
+      
       if (order.size > maxSellSize) {
         adjustedSize = maxSellSize;
         logger.warn(
-          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (50% of available ${assetBalance})`,
+          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (50% of available ${assetBalance.toFixed(4)})`,
         );
         return {
           approved: true,
@@ -122,12 +123,12 @@ const checkBuyingPower = async (
       }
 
       // Ensure order doesn't exceed available balance (95% safety margin)
-      if (order.size > availableUSDC * 0.95) {
-        adjustedSize = availableUSDC * 0.95;
+      if (order.size > assetBalance * 0.95) {
+        adjustedSize = assetBalance * 0.95;
         adjustedSize = Math.floor(adjustedSize * 10000) / 10000; // Round to 4 decimal places
 
         logger.warn(
-          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (available: ${assetBalance})`,
+          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (available: ${assetBalance.toFixed(4)})`,
         );
         return {
           approved: true,

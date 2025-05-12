@@ -88,16 +88,16 @@ export const createStrategyManagerActorDefinition = (
     
     // If total weight is 0, set equal weights
     if (totalWeight === 0) {
-      const equalWeight = 1 / activeStrategies.length;
+    const equalWeight = 1 / activeStrategies.length;
       
-      return Object.entries(strategies).reduce((result, [id, strategy]) => {
-        result[id] = {
-          ...strategy,
-          weight: strategy.status === 'active' ? equalWeight : 0
-        };
-        return result;
-      }, {} as Record<string, StrategyEntry>);
-    }
+    return Object.entries(strategies).reduce((result, [id, strategy]) => {
+      result[id] = {
+        ...strategy,
+        weight: strategy.status === 'active' ? equalWeight : 0
+      };
+      return result;
+    }, {} as Record<string, StrategyEntry>);
+  }
     
     // Normalize weights so they sum to 1
     return Object.entries(strategies).reduce((result, [id, strategy]) => {
@@ -225,7 +225,7 @@ export const createStrategyManagerActorDefinition = (
     state: StrategyManagerState,
     message: ActorMessage<StrategyManagerMessage>,
     context: ActorContext<StrategyManagerState>
-  ) => {
+  ): Promise<{ state: StrategyManagerState }> => {
     const { payload } = message;
     
     switch (payload.type) {
@@ -467,7 +467,7 @@ export const createStrategyManagerActorDefinition = (
           ...state.strategies,
           [strategyId]: {
             ...state.strategies[strategyId],
-            status: 'paused',
+            status: 'paused' as const,
             weight: 0 // Zero weight when paused
           }
         };

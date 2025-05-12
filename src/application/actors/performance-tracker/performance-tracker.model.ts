@@ -1,5 +1,5 @@
-import { Order, OrderStatus } from '../../../domain/models/market.model';
-import { StrategyPerformance } from '../strategy-manager/strategy-manager.model';
+import { Order, OrderStatus } from "../../../domain/models/market.model";
+import { StrategyPerformance } from "../strategy-manager/strategy-manager.model";
 
 export interface TradeEntry {
   id: string;
@@ -15,7 +15,7 @@ export interface TradeEntry {
   pnl?: number;
   pnlPercent?: number;
   fees: number;
-  status: 'open' | 'closed' | 'canceled';
+  status: "open" | "closed" | "canceled";
   duration?: number;
   tags: string[];
 }
@@ -74,21 +74,21 @@ export interface PerformanceTrackerConfig {
 }
 
 export type PerformanceTrackerMessage =
-  | { type: 'TRADE_OPENED'; trade: TradeEntry }
-  | { type: 'TRADE_CLOSED'; trade: TradeEntry }
-  | { type: 'TRADE_UPDATED'; trade: TradeEntry }
-  | { type: 'UPDATE_PRICE'; symbol: string; price: number; timestamp: number }
-  | { type: 'GET_ACCOUNT_METRICS' }
-  | { type: 'GET_SYMBOL_PERFORMANCE'; symbol: string }
-  | { type: 'GET_STRATEGY_PERFORMANCE'; strategyId: string }
-  | { type: 'GET_TRADE_HISTORY'; filters?: TradeHistoryFilter }
-  | { type: 'GENERATE_PERFORMANCE_REPORT'; type: ReportType; period?: Period }
-  | { type: 'UPDATE_CONFIG'; config: Partial<PerformanceTrackerConfig> };
+  | { type: "TRADE_OPENED"; trade: TradeEntry }
+  | { type: "TRADE_CLOSED"; trade: TradeEntry }
+  | { type: "TRADE_UPDATED"; trade: TradeEntry }
+  | { type: "UPDATE_PRICE"; symbol: string; price: number; timestamp: number }
+  | { type: "GET_ACCOUNT_METRICS" }
+  | { type: "GET_SYMBOL_PERFORMANCE"; symbol: string }
+  | { type: "GET_STRATEGY_PERFORMANCE"; strategyId: string }
+  | { type: "GET_TRADE_HISTORY"; filters?: TradeHistoryFilter }
+  | { type: "GENERATE_PERFORMANCE_REPORT"; period?: Period }
+  | { type: "UPDATE_CONFIG"; config: Partial<PerformanceTrackerConfig> };
 
 export interface TradeHistoryFilter {
   symbol?: string;
   strategyId?: string;
-  status?: 'open' | 'closed' | 'canceled';
+  status?: "open" | "closed" | "canceled";
   startDate?: number;
   endDate?: number;
   profitable?: boolean;
@@ -96,8 +96,14 @@ export interface TradeHistoryFilter {
   tags?: string[];
 }
 
-export type ReportType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
-export type Period = 'day' | 'week' | 'month' | 'quarter' | 'year' | 'all';
+export type ReportType =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "quarterly"
+  | "yearly"
+  | "custom";
+export type Period = "day" | "week" | "month" | "quarter" | "year" | "all";
 
 export interface PerformanceTrackerState {
   trades: TradeEntry[];
@@ -117,7 +123,9 @@ export interface PerformanceTrackerPort {
   updatePrice(symbol: string, price: number, timestamp: number): Promise<void>;
   getAccountMetrics(): Promise<AccountMetrics>;
   getSymbolPerformance(symbol: string): Promise<SymbolPerformance | null>;
-  getStrategyPerformance(strategyId: string): Promise<StrategyPerformance | null>;
+  getStrategyPerformance(
+    strategyId: string,
+  ): Promise<StrategyPerformance | null>;
   getTradeHistory(filters?: TradeHistoryFilter): Promise<TradeEntry[]>;
   generateReport(type: ReportType, period?: Period): Promise<any>;
 }
