@@ -19,11 +19,16 @@ import { createRiskManagerActorDefinition } from "../actors/risk-manager/risk-ma
 import { createStrategyManagerActorDefinition } from "../actors/strategy-manager/strategy-manager.actor";
 import { createPerformanceTrackerActorDefinition } from "../actors/performance-tracker/performance-tracker.actor";
 import {
+  PositionRisk,
   RiskManagerConfig,
   RiskLevel,
+  RiskManagerPort
 } from "../actors/risk-manager/risk-manager.model";
 import { StrategyManagerConfig } from "../actors/strategy-manager/strategy-manager.model";
 import { PerformanceTrackerConfig } from "../actors/performance-tracker/performance-tracker.model";
+import { createTakeProfitIntegrator } from "../integrators/take-profit-integrator";
+import { TakeProfitConfig } from "../actors/take-profit-manager/take-profit-manager.model";
+import { TakeProfitIntegratorConfig } from "../integrators/take-profit-integrator";
 
 type TradingBotMessage = 
   | { type: "START" }
@@ -46,6 +51,7 @@ interface TradingBotState {
   strategyManagerActor: ActorAddress | null;
   performanceTrackerActor: ActorAddress | null;
   positions: Record<string, { symbol: string; direction: 'long' | 'short' | 'none'; size: number }>;
+  takeProfitIntegrator: ReturnType<typeof createTakeProfitIntegrator> | null;
 }
 
 export interface TradingBotService {
@@ -223,6 +229,8 @@ export const createTradingBotService = (
     riskConfig: {} as Partial<RiskManagerConfig>,
     strategyConfig: {} as Partial<StrategyManagerConfig>,
     performanceConfig: {} as Partial<PerformanceTrackerConfig>,
+    takeProfitConfig: {} as Partial<TakeProfitConfig>,
+    takeProfitIntegratorConfig: {} as Partial<TakeProfitIntegratorConfig>,
   },
 ): TradingBotService => {
   const logger = getLogger();
@@ -237,6 +245,7 @@ export const createTradingBotService = (
     strategyManagerActor: null,
     performanceTrackerActor: null,
     positions: {},
+    takeProfitIntegrator: null,
   };
 
   // Helper function to close a position
@@ -310,6 +319,7 @@ export const createTradingBotService = (
 
         // Create risk manager if not exists
         let riskManagerActor = state.riskManagerActor;
+        
         if (!riskManagerActor) {
           const riskManagerDefinition = createRiskManagerActorDefinition(
             tradingPort,
@@ -317,6 +327,7 @@ export const createTradingBotService = (
           );
           riskManagerActor = actorSystem.createActor(riskManagerDefinition);
           logger.info("Created risk manager actor");
+          state.riskManagerActor = riskManagerActor;
         }
 
         // Create strategy manager if not exists
@@ -332,6 +343,7 @@ export const createTradingBotService = (
 
         // Create performance tracker if not exists
         let performanceTrackerActor = state.performanceTrackerActor;
+        // Tracker configuration
         if (!performanceTrackerActor) {
           const performanceTrackerDefinition =
             createPerformanceTrackerActorDefinition(options.performanceConfig);
@@ -339,6 +351,62 @@ export const createTradingBotService = (
             performanceTrackerDefinition,
           );
           logger.info("Created performance tracker actor");
+        }
+        
+        // Initialize take profit integrator
+        if (!state.takeProfitIntegrator && state.riskManagerActor) {
+          // Créer un adaptateur pour RiskManagerPort à partir de l'acteur
+          const riskManagerPort: RiskManagerPort = {
+            assessOrderRisk: async (order, accountRisk) => {
+              // Simple implementation for now
+              return { approved: true, riskLevel: 'LOW' };
+            },
+            getAccountRisk: async () => {
+              // Default implementation
+              return { 
+                totalValue: 10000, 
+                availableBalance: 10000, 
+                positions: [], 
+                totalRisk: 0, 
+                maxDrawdown: 0, 
+                maxDrawdownPercent: 0, 
+                maxPositionSize: 2000, 
+                currentRiskLevel: 'LOW' as const, 
+                leverageUsed: 0 
+              };
+            },
+            getPositionRisk: async (symbol) => null,
+            updatePosition: () => {},
+            suggestOrderAdjustments: async (order) => order,
+            rebalancePortfolio: async () => [],
+            analyzePositionViability: async (symbol, currentPrice) => ({
+              isViable: true,
+              reason: "Default",
+              recommendation: "Default",
+              riskLevel: 'LOW' as const,
+              shouldClose: false
+            }),
+            analyzeAllOpenPositions: async () => ({})
+          };
+          
+          state.takeProfitIntegrator = createTakeProfitIntegrator(
+            actorSystem,
+            tradingPort,
+            marketDataPort,
+            riskManagerPort,
+            { 
+              watchedSymbols: Array.from(state.marketActors.keys()),
+              ...options.takeProfitIntegratorConfig
+            }
+          );
+          state.takeProfitIntegrator.start();
+          
+          // Configurer le gestionnaire de prise de profit si nécessaire
+          if (options.takeProfitConfig) {
+            state.takeProfitIntegrator.takeProfitManager.updateConfig(options.takeProfitConfig);
+          }
+          
+          logger.info("Take profit manager initialized and started");
         }
 
         // Start all existing market actors if they exist
@@ -363,6 +431,12 @@ export const createTradingBotService = (
         // Stop all market actors
         for (const [symbol, actorAddress] of state.marketActors.entries()) {
           actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
+        }
+        
+        // Arrêter le gestionnaire de prise de profits
+        if (state.takeProfitIntegrator) {
+          state.takeProfitIntegrator.stop();
+          logger.info("Take profit manager stopped");
         }
 
         return { state: { ...state, isRunning: false } };
@@ -481,6 +555,14 @@ export const createTradingBotService = (
             symbol: data.symbol,
             price: data.price,
           });
+        }
+        
+        // Mettre à jour le gestionnaire de prise de profit
+        if (state.takeProfitIntegrator && state.positions[data.symbol]) {
+          state.takeProfitIntegrator.takeProfitManager.analyzePosition(
+            data.symbol,
+            data.price
+          );
         }
 
         // Send price update to performance tracker
@@ -631,14 +713,32 @@ export const createTradingBotService = (
                 if (signal.type === "entry") {
                   state.positions[order.symbol] = {
                     symbol: order.symbol,
-                    direction: signal.direction,
-                    size: adjustedOrder.size
+                    direction: signal.direction === "long" ? "long" : "short",
+                    size: adjustedOrder.size,
                   };
-                  logger.debug(`Added position to tracking: ${order.symbol} ${signal.direction} ${adjustedOrder.size}`);
+                  
+                  // Notifier le gestionnaire de prise de profit d'une nouvelle position
+                  if (state.takeProfitIntegrator) {
+                    const position: PositionRisk = {
+                      symbol: order.symbol,
+                      direction: signal.direction === "long" ? "long" : "short",
+                      size: adjustedOrder.size,
+                      entryPrice: data.price,
+                      currentPrice: data.price,
+                      unrealizedPnl: 0,
+                      riskLevel: "LOW",
+                      entryTime: Date.now()
+                    };
+                    state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
+                  }
                 } else if (signal.type === "exit") {
-                  // Remove position from tracking
+                  // Si on sort de la position, notifier le gestionnaire de prise de profit
+                  if (state.takeProfitIntegrator) {
+                    state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
+                  }
+                  
+                  // Puis supprimer la position de l'état local
                   delete state.positions[order.symbol];
-                  logger.debug(`Removed position from tracking: ${order.symbol}`);
                 }
               } else if (state.riskManagerActor) {
                 // For LIMIT orders, we just log that the risk manager will be notified when filled

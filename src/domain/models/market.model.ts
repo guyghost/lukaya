@@ -15,6 +15,8 @@ export enum TimeInForce {
   GOOD_TIL_CANCEL = "GOOD_TIL_CANCEL",
   FILL_OR_KILL = "FILL_OR_KILL",
   IMMEDIATE_OR_CANCEL = "IMMEDIATE_OR_CANCEL",
+  GOOD_TILL_TIME = "GOOD_TILL_TIME",
+  GTT = "GTT",
 }
 
 export interface MarketData {

@@ -8,6 +8,8 @@ import { initializeLogger, getLogger } from "./infrastructure/logger";
 import { RiskManagerConfig } from "./application/actors/risk-manager/risk-manager.model";
 import { StrategyManagerConfig } from "./application/actors/strategy-manager/strategy-manager.model";
 import { PerformanceTrackerConfig } from "./application/actors/performance-tracker/performance-tracker.model";
+import { TakeProfitConfig } from "./application/actors/take-profit-manager/take-profit-manager.model";
+import { TakeProfitIntegratorConfig } from "./application/integrators/take-profit-integrator";
 import { OrderSide } from "./domain/models/market.model";
 
 const main = async (): Promise<void> => {
@@ -48,6 +50,23 @@ const main = async (): Promise<void> => {
     trackOpenPositions: true,
     realTimeUpdates: true
   };
+  
+  const takeProfitConfig: Partial<TakeProfitConfig> = {
+    enabled: true,
+    profitTiers: [
+      { profitPercentage: 10, closePercentage: 25 },
+      { profitPercentage: 20, closePercentage: 33 },
+      { profitPercentage: 30, closePercentage: 50 },
+      { profitPercentage: 50, closePercentage: 100 }
+    ],
+    cooldownPeriod: 10 * 60 * 1000, // 10 minutes
+    trailingMode: false
+  };
+  
+  const takeProfitIntegratorConfig: Partial<TakeProfitIntegratorConfig> = {
+    priceCheckInterval: 30 * 1000, // 30 secondes
+    positionCheckInterval: 2 * 60 * 1000 // 2 minutes
+  };
 
   // Initialize trading bot service with separate ports using factory function
   logger.debug("Setting up trading bot service...");
@@ -60,7 +79,9 @@ const main = async (): Promise<void> => {
       maxFundsPerOrder: config.trading.maxFundsPerOrder,
       riskConfig,
       strategyConfig,
-      performanceConfig
+      performanceConfig,
+      takeProfitConfig,
+      takeProfitIntegratorConfig
     }
   );
   
