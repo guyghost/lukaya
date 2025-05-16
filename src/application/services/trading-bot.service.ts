@@ -497,20 +497,33 @@ export const createTradingBotService = (
         // This will automatically filter and apply only to strategies configured for this symbol
         const signals = await state.strategyService.processMarketData(data);
 
-        // Handle strategy signals for this particular symbol
+        // --- Fusion des signaux de toutes les stratégies ---
+        // Regrouper les signaux par type/direction
+        const entryLong = [];
+        const entryShort = [];
+        const exitLong = [];
+        const exitShort = [];
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
+          if (signal.type === "entry" && signal.direction === "long") entryLong.push({strategyId, signal});
+          if (signal.type === "entry" && signal.direction === "short") entryShort.push({strategyId, signal});
+          if (signal.type === "exit" && signal.direction === "long") exitLong.push({strategyId, signal});
+          if (signal.type === "exit" && signal.direction === "short") exitShort.push({strategyId, signal});
+        }
+        // Règle de consensus simple : on agit si au moins 2 stratégies sont d'accord
+        let consensusSignal = null;
+        if (entryLong.length >= 2) consensusSignal = entryLong[0];
+        else if (entryShort.length >= 2) consensusSignal = entryShort[0];
+        else if (exitLong.length >= 2) consensusSignal = exitLong[0];
+        else if (exitShort.length >= 2) consensusSignal = exitShort[0];
 
+        if (consensusSignal) {
+          const { strategyId, signal } = consensusSignal;
           logger.info(
-            `Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`,
+            `Consensus signal: ${signal.type} ${signal.direction} (parmi ${Object.values(signals).filter(Boolean).length} signaux)`
           );
-
-          // Generate order for the specific strategy that produced the signal
-          const order = state.strategyService.generateOrder(
-            strategyId,
-            signal,
-            data,
-          );
+          // Générer et exécuter l'ordre pour la stratégie qui a produit le signal consensus
+          const order = state.strategyService.generateOrder(strategyId, signal, data);
           if (order) {
             try {
               // Assess order risk before placing

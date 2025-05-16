@@ -1,268 +1,193 @@
-import { 
-  MarketData, 
-  OrderParams,
-  OrderSide,
-  OrderType,
-  TimeInForce 
-} from "../../domain/models/market.model";
-import { 
-  Strategy,
-  StrategyConfig,
-  StrategySignal 
-} from "../../domain/models/strategy.model";
+// Nouvelle stratégie de moyenne mobile complète
+// Utilise SMA, EMA et signaux de croisement, avec gestion dynamique de la taille et du stop-loss
+import { MarketData, OrderParams, OrderSide, OrderType, TimeInForce } from "../../domain/models/market.model";
+import { Strategy, StrategyConfig, StrategySignal } from "../../domain/models/strategy.model";
 
-interface SimpleMAConfig {
+interface AdvancedMAConfig {
+  symbol: string;
   shortPeriod: number;
   longPeriod: number;
-  symbol: string;
   positionSize: number;
-  maxSlippagePercent?: number; // Pourcentage maximal de slippage accepté
-  minLiquidityRatio?: number;  // Ratio minimum de liquidité par rapport à la taille de l'ordre
-  riskPerTrade?: number;       // Pourcentage du capital à risquer par trade (0.01 = 1%)
-  stopLossPercent?: number;    // Pourcentage de stop loss par rapport au prix d'entrée
-  accountSize?: number;        // Taille du compte en USD (optionnel, sera récupéré dynamiquement si non fourni)
-  maxCapitalPerTrade?: number; // Pourcentage maximum du capital pour un trade (0.25 = 25%)
-  limitOrderBuffer?: number;   // Buffer pour les ordres limite (0.0005 = 0.05%)
+  useEMA?: boolean;
+  riskPerTrade?: number;
+  stopLossPercent?: number;
+  trailingStop?: boolean;
+  trailingPercent?: number;
+  maxSlippagePercent?: number;
+  minLiquidityRatio?: number;
+  accountSize?: number;
+  maxCapitalPerTrade?: number;
+  limitOrderBuffer?: number;
 }
 
-interface SimpleMAState {
+interface AdvancedMAState {
   priceHistory: number[];
   position: "none" | "long" | "short";
   lastEntryPrice: number | null;
+  trailingStopPrice: number | null;
   accountSize: number | null;
 }
 
-export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
-  // Create strategy state
-  const state: SimpleMAState = {
+export const createAdvancedMAStrategy = (config: AdvancedMAConfig): Strategy => {
+  const state: AdvancedMAState = {
     priceHistory: [],
     position: "none",
     lastEntryPrice: null,
+    trailingStopPrice: null,
     accountSize: config.accountSize || null
   };
-  
-  // Generate unique ID and name for the strategy
-  const id = `simple-ma-${config.shortPeriod}-${config.longPeriod}-${config.symbol}`;
-  const name = `Simple Moving Average (${config.shortPeriod}/${config.longPeriod})`;
-  
-  // Set default values for parameters
-  const maxSlippagePercent = config.maxSlippagePercent || 1.0; // 1% par défaut
-  const minLiquidityRatio = config.minLiquidityRatio || 10.0;  // 10x taille de l'ordre par défaut
-  const riskPerTrade = config.riskPerTrade || 0.01;           // 1% du capital par défaut
-  const stopLossPercent = config.stopLossPercent || 0.02;     // 2% par défaut
-  const defaultAccountSize = config.accountSize || 10000;     // 10000 USD par défaut si non spécifié
-  const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.25; // 25% maximum du capital par trade
-  const limitOrderBuffer = config.limitOrderBuffer || 0.0005; // 0.05% buffer par défaut pour les ordres limite
-  
-  // Helper function to calculate moving average
-  const calculateMA = (period: number, offset: number = 0): number => {
+  const id = `advanced-ma-${config.shortPeriod}-${config.longPeriod}-${config.symbol}`;
+  const name = `Advanced Moving Average (${config.useEMA ? "EMA" : "SMA"} ${config.shortPeriod}/${config.longPeriod})`;
+  const maxSlippagePercent = config.maxSlippagePercent || 1.0;
+  const minLiquidityRatio = config.minLiquidityRatio || 10.0;
+  const riskPerTrade = config.riskPerTrade || 0.01;
+  const stopLossPercent = config.stopLossPercent || 0.02;
+  const defaultAccountSize = config.accountSize || 10000;
+  const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.25;
+  const limitOrderBuffer = config.limitOrderBuffer || 0.0005;
+  const trailingPercent = config.trailingPercent || 0.01;
+
+  // Helper: SMA
+  const sma = (period: number, offset = 0): number => {
     if (state.priceHistory.length < period + offset) return 0;
-
-    const relevantPrices = state.priceHistory
-      .slice(-(period + offset), state.priceHistory.length - offset);
-
-    const sum = relevantPrices.reduce((acc, price) => acc + price, 0);
-    return sum / period;
+    const relevant = state.priceHistory.slice(-(period + offset), state.priceHistory.length - offset);
+    return relevant.reduce((a, b) => a + b, 0) / period;
   };
-  
-  // Return the strategy implementation
+  // Helper: EMA
+  const ema = (period: number, offset = 0): number => {
+    if (state.priceHistory.length < period + offset) return 0;
+    const relevant = state.priceHistory.slice(-(period + offset), state.priceHistory.length - offset);
+    const k = 2 / (period + 1);
+    let emaPrev = relevant[0];
+    for (let i = 1; i < relevant.length; i++) {
+      emaPrev = relevant[i] * k + emaPrev * (1 - k);
+    }
+    return emaPrev;
+  };
+
+  // Main logic
   return {
-    getId: (): string => id,
-    
-    getName: (): string => name,
-    
-    getConfig: (): StrategyConfig => {
-      return {
-        id,
-        name,
-        description: `Simple moving average crossover strategy using ${config.shortPeriod} and ${config.longPeriod} periods`,
-        parameters: config as unknown as Record<string, unknown>,
-      };
-    },
-    
+    getId: () => id,
+    getName: () => name,
+    getConfig: (): StrategyConfig => ({
+      id,
+      name,
+      description: `Advanced MA strategy using ${config.useEMA ? "EMA" : "SMA"} (${config.shortPeriod}/${config.longPeriod})`,
+      parameters: config as unknown as Record<string, unknown>,
+    }),
     processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
       if (data.symbol !== config.symbol) return null;
-
-      // Add price to history
       state.priceHistory.push(data.price);
-
-      // Keep only the required data points
       const requiredLength = Math.max(config.shortPeriod, config.longPeriod);
-      if (state.priceHistory.length > requiredLength) {
-        state.priceHistory = state.priceHistory.slice(-requiredLength);
+      if (state.priceHistory.length > requiredLength + 10) {
+        state.priceHistory = state.priceHistory.slice(-requiredLength - 10);
       }
-
-      // Not enough data yet
-      if (state.priceHistory.length < requiredLength) {
-        return null;
-      }
-
-      // Calculate moving averages
-      const shortMA = calculateMA(config.shortPeriod);
-      const longMA = calculateMA(config.longPeriod);
-
-      // Previous moving averages (from one data point ago)
-      const prevShortMA = calculateMA(config.shortPeriod, 1);
-      const prevLongMA = calculateMA(config.longPeriod, 1);
-
-      // Check for crossovers
+      if (state.priceHistory.length < requiredLength) return null;
+      const shortMA = config.useEMA ? ema(config.shortPeriod) : sma(config.shortPeriod);
+      const longMA = config.useEMA ? ema(config.longPeriod) : sma(config.longPeriod);
+      const prevShortMA = config.useEMA ? ema(config.shortPeriod, 1) : sma(config.shortPeriod, 1);
+      const prevLongMA = config.useEMA ? ema(config.longPeriod, 1) : sma(config.longPeriod, 1);
+      // Crossovers
       if (shortMA > longMA && prevShortMA <= prevLongMA) {
-        // Bullish crossover
         if (state.position === "short") {
-          // Close short position first
-          const exitSignal: StrategySignal = {
-            type: "exit",
-            direction: "short",
-            price: data.price,
-            reason: "Moving average bullish crossover",
-          };
           state.position = "none";
           state.lastEntryPrice = null;
-          return exitSignal;
+          state.trailingStopPrice = null;
+          return { type: "exit", direction: "short", price: data.price, reason: "MA bullish crossover" };
         } else if (state.position === "none") {
-          // Enter long position
-          const entrySignal: StrategySignal = {
-            type: "entry",
-            direction: "long",
-            price: data.price,
-            reason: "Moving average bullish crossover",
-          };
           state.position = "long";
           state.lastEntryPrice = data.price;
-          return entrySignal;
+          state.trailingStopPrice = null;
+          return { type: "entry", direction: "long", price: data.price, reason: "MA bullish crossover" };
         }
       } else if (shortMA < longMA && prevShortMA >= prevLongMA) {
-        // Bearish crossover
         if (state.position === "long") {
-          // Close long position first
-          const exitSignal: StrategySignal = {
-            type: "exit",
-            direction: "long",
-            price: data.price,
-            reason: "Moving average bearish crossover",
-          };
           state.position = "none";
           state.lastEntryPrice = null;
-          return exitSignal;
+          state.trailingStopPrice = null;
+          return { type: "exit", direction: "long", price: data.price, reason: "MA bearish crossover" };
         } else if (state.position === "none") {
-          // Enter short position
-          const entrySignal: StrategySignal = {
-            type: "entry",
-            direction: "short",
-            price: data.price,
-            reason: "Moving average bearish crossover",
-          };
           state.position = "short";
           state.lastEntryPrice = data.price;
-          return entrySignal;
+          state.trailingStopPrice = null;
+          return { type: "entry", direction: "short", price: data.price, reason: "MA bearish crossover" };
         }
       }
-
+      // Trailing stop (if enabled)
+      if (config.trailingStop && state.position === "long" && state.lastEntryPrice) {
+        const newTrail = data.price * (1 - trailingPercent);
+        if (!state.trailingStopPrice || newTrail > state.trailingStopPrice) {
+          state.trailingStopPrice = newTrail;
+        }
+        if (data.price < state.trailingStopPrice) {
+          state.position = "none";
+          state.lastEntryPrice = null;
+          state.trailingStopPrice = null;
+          return { type: "exit", direction: "long", price: data.price, reason: "Trailing stop hit" };
+        }
+      }
+      if (config.trailingStop && state.position === "short" && state.lastEntryPrice) {
+        const newTrail = data.price * (1 + trailingPercent);
+        if (!state.trailingStopPrice || newTrail < state.trailingStopPrice) {
+          state.trailingStopPrice = newTrail;
+        }
+        if (data.price > state.trailingStopPrice) {
+          state.position = "none";
+          state.lastEntryPrice = null;
+          state.trailingStopPrice = null;
+          return { type: "exit", direction: "short", price: data.price, reason: "Trailing stop hit" };
+        }
+      }
       return null;
     },
-    
     generateOrder: (signal: StrategySignal, marketData: MarketData): OrderParams | null => {
       if (marketData.symbol !== config.symbol) return null;
-
-      // Déterminer le côté de l'ordre
-      const orderSide = 
-        (signal.type === "entry" && signal.direction === "long") || 
-        (signal.type === "exit" && signal.direction === "short") 
-          ? OrderSide.BUY 
-          : OrderSide.SELL;
-      
-      // Vérifier la liquidité disponible
+      const orderSide = (signal.type === "entry" && signal.direction === "long") || (signal.type === "exit" && signal.direction === "short") ? OrderSide.BUY : OrderSide.SELL;
       const liquidityPrice = orderSide === OrderSide.BUY ? marketData.ask : marketData.bid;
       const midPrice = (marketData.bid + marketData.ask) / 2;
-      
-      // Utiliser la taille de compte configurée ou par défaut
       const currentAccountSize = state.accountSize || defaultAccountSize;
-      
-      // Calculer la taille de position basée sur le risque
       let positionSize: number;
-      
       if (signal.type === "entry") {
-        // Pour les ordres d'entrée, calculer la taille en fonction du risque et du stop loss
-        // Montant à risquer = taille du compte * pourcentage de risque par trade
         const riskAmount = currentAccountSize * riskPerTrade;
-        
-        // Distance jusqu'au stop loss (en USD)
-        // Pour un ordre long: prix d'entrée - prix du stop loss
-        // Pour un ordre short: prix du stop loss - prix d'entrée
         const entryPrice = marketData.price;
         const stopLossDistance = entryPrice * stopLossPercent;
-        
-        // Taille de la position = montant à risquer / distance jusqu'au stop loss
         positionSize = stopLossDistance > 0 ? riskAmount / stopLossDistance : 0;
-        
-        // S'assurer que la taille est proportionnelle au buying power (max 25% du capital)
-        const maxPositionValue = currentAccountSize * 0.25;
+        const maxPositionValue = currentAccountSize * maxCapitalPerTrade;
         const calculatedPositionValue = positionSize * entryPrice;
-        
-        // Réduire la taille si elle dépasse le pourcentage maximum du capital
         if (calculatedPositionValue > maxPositionValue) {
           positionSize = maxPositionValue / entryPrice;
         }
       } else {
-        // Pour les ordres de sortie, utiliser la même taille que l'entrée
         positionSize = config.positionSize;
       }
-      
-      // Vérifier que la taille n'est pas nulle ou invalide
-      if (positionSize <= 0) {
-        return null;
-      }
-      
-      // Calculer le slippage actuel
+      if (positionSize <= 0) return null;
       const currentSlippagePercent = Math.abs((liquidityPrice - midPrice) / midPrice) * 100;
-      
-      // Estimer la liquidité disponible à partir de l'écart entre le prix et le volume
-      // Dans un cas réel, on pourrait utiliser la profondeur du carnet d'ordres
-      const estimatedLiquidity = marketData.volume / 24; // Volume horaire approximatif
+      const estimatedLiquidity = marketData.volume / 24;
       const liquidityRatio = estimatedLiquidity / positionSize;
-      
-      // Ajuster la taille de la position en fonction de la liquidité
       let adjustedSize = positionSize;
-      
-      // Si le slippage est trop élevé, réduire la taille de l'ordre
       if (currentSlippagePercent > maxSlippagePercent) {
         const reductionFactor = maxSlippagePercent / currentSlippagePercent;
         adjustedSize = positionSize * reductionFactor;
       }
-      
-      // Si la liquidité est insuffisante, réduire davantage la taille
       if (liquidityRatio < minLiquidityRatio) {
         const liquidityReductionFactor = liquidityRatio / minLiquidityRatio;
         adjustedSize = adjustedSize * liquidityReductionFactor;
       }
-      
-      // Si la taille ajustée est trop petite (moins de 10% de la taille originale), ne pas passer d'ordre
-      if (adjustedSize < positionSize * 0.1) {
-        return null; // Liquidité insuffisante, ne pas passer d'ordre
-      }
-      
-      // Arrondir la taille à 4 décimales pour éviter les erreurs de précision
+      if (adjustedSize < positionSize * 0.1) return null;
       adjustedSize = Math.floor(adjustedSize * 10000) / 10000;
-      
-      // Calculer le prix limite en fonction du côté de l'ordre
-      // Pour les achats, on place légèrement au-dessus du bid (meilleure chance d'exécution)
-      // Pour les ventes, on place légèrement en-dessous du ask
-      const slippageBuffer = 0.0005; // 0.05% de buffer pour augmenter les chances d'exécution
-      const limitPrice = orderSide === OrderSide.BUY 
-        ? Math.round((marketData.bid * (1 + slippageBuffer)) * 100) / 100 // Arrondi à 2 décimales
+      const slippageBuffer = limitOrderBuffer;
+      const limitPrice = orderSide === OrderSide.BUY
+        ? Math.round((marketData.bid * (1 + slippageBuffer)) * 100) / 100
         : Math.round((marketData.ask * (1 - slippageBuffer)) * 100) / 100;
-      
-      // Pour les ordres d'entrée, on peut aussi ajouter un stop loss automatique
       const orderParams: OrderParams = {
         symbol: config.symbol,
         side: orderSide,
-        type: OrderType.LIMIT, 
+        type: OrderType.LIMIT,
         size: adjustedSize,
         price: limitPrice,
         timeInForce: TimeInForce.GOOD_TIL_CANCEL,
-        postOnly: true // Assure que l'ordre ne sera jamais exécuté comme preneur de liquidité
+        postOnly: true
       };
-      
       return orderParams;
     }
   };

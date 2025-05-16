@@ -75,7 +75,7 @@ export const loadConfig = (): ConfigType => {
     },
     strategies: process.env.DEFAULT_SYMBOLS
       ? process.env.DEFAULT_SYMBOLS.split(",").map((symbol) => ({
-          type: "simple-ma",
+          type: "rsi",
           enabled: true,
           parameters: {
             shortPeriod: Number(process.env.MA_SHORT_PERIOD || 10),

@@ -16,7 +16,15 @@ interface MarketActorState {
   lastData: MarketData | null;
   lastUpdated: number;
   pollingInterval: number;
+  priceHistory: number[];
 }
+
+// Helper function to calculate standard deviation
+const calculateStandardDeviation = (data: number[]): number => {
+  const mean = data.reduce((acc, val) => acc + val, 0) / data.length;
+  const variance = data.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / data.length;
+  return Math.sqrt(variance);
+};
 
 // Create a definition for a market actor
 export const createMarketActorDefinition = (
@@ -34,6 +42,7 @@ export const createMarketActorDefinition = (
     lastData: null,
     lastUpdated: 0,
     pollingInterval,
+    priceHistory: [],
   };
   
   // The behavior that defines how the actor reacts to messages
@@ -115,18 +124,32 @@ export const createMarketActorDefinition = (
             logger.debug(`Updated market data for ${state.symbol}: price=${marketData.price}, bid=${marketData.bid}, ask=${marketData.ask}`);
           }
           
-          // Schedule next polling after the interval
+          // Update price history
+          const updatedPriceHistory = [...state.priceHistory, marketData.price].slice(-100); // Keep last 100 prices
+          
+          // Calculate volatility (standard deviation of price changes)
+          const priceChanges = updatedPriceHistory.slice(1).map((price, index) => price - updatedPriceHistory[index]);
+          const volatility = calculateStandardDeviation(priceChanges);
+          
+          // Adjust polling interval based on volatility
+          const minPollingInterval = 1000; // 1 second
+          const maxPollingInterval = 10000; // 10 seconds
+          const adjustedPollingInterval = Math.max(minPollingInterval, Math.min(maxPollingInterval, pollingInterval / (volatility || 1)));
+          
+          // Schedule next polling after the adjusted interval
           setTimeout(() => {
             if (state.isSubscribed) {
               context.send(context.self, { type: "POLL_DATA" });
             }
-          }, state.pollingInterval);
+          }, adjustedPollingInterval);
           
           return { 
             state: { 
               ...state, 
               lastData: marketData, 
-              lastUpdated: Date.now() 
+              lastUpdated: Date.now(),
+              priceHistory: updatedPriceHistory,
+              pollingInterval: adjustedPollingInterval,
             } 
           };
         } catch (error) {
