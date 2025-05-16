@@ -3,7 +3,10 @@
 import { loadConfig, getNetworkFromString } from "./config/config";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
 import { createTradingBotService } from "./application/services/trading-bot.service";
-import { createSimpleMAStrategy } from "./adapters/primary/simple-ma.strategy";
+import { createAdvancedMAStrategy } from "./adapters/primary/simple-ma.strategy";
+import { createRSIStrategy } from "./adapters/primary/rsi.strategy";
+import { createMACDStrategy } from "./adapters/primary/macd.strategy";
+import { createBollingerStrategy } from "./adapters/primary/bollinger.strategy";
 import { initializeLogger, getLogger } from "./infrastructure/logger";
 import { RiskManagerConfig } from "./application/actors/risk-manager/risk-manager.model";
 import { StrategyManagerConfig } from "./application/actors/strategy-manager/strategy-manager.model";
@@ -71,16 +74,28 @@ const main = async (): Promise<void> => {
       logger.debug(`Skipping disabled strategy: ${strategyConfig.type}`);
       continue;
     }
-    
     try {
+      let strategy;
       if (strategyConfig.type === "simple-ma") {
         logger.debug("Initializing Simple MA strategy with parameters", strategyConfig.parameters);
-        const strategy = createSimpleMAStrategy(strategyConfig.parameters as any);
-        tradingBot.addStrategy(strategy);
-        logger.info(`Added strategy: ${strategy.getName()}`);
+        strategy = createAdvancedMAStrategy(strategyConfig.parameters as any);
+      } else if (strategyConfig.type === "rsi") {
+        logger.debug("Initializing RSI strategy with parameters", strategyConfig.parameters);
+        strategy = createRSIStrategy(strategyConfig.parameters as any);
+      } else if (strategyConfig.type === "macd") {
+        logger.debug("Initializing MACD strategy with parameters", strategyConfig.parameters);
+        strategy = createMACDStrategy(strategyConfig.parameters as any);
+      } else if (strategyConfig.type === "bollinger") {
+        logger.debug("Initializing Bollinger strategy with parameters", strategyConfig.parameters);
+        strategy = createBollingerStrategy(strategyConfig.parameters as any);
       } else {
         logger.warn(`Unknown strategy type: ${strategyConfig.type}`);
+        continue;
       }
+      tradingBot.addStrategy(strategy);
+      logger.info(`Added strategy: ${strategy.getName()}`);
+      // Wait 5 seconds before initializing the next strategy/actor to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 5000));
     } catch (error) {
       logger.error(`Failed to initialize strategy: ${strategyConfig.type}`, error as Error);
     }

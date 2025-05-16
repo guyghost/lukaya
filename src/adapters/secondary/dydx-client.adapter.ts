@@ -367,7 +367,16 @@ export const createDydxClient = (config: DydxClientConfig): {
         
         // Get market configuration
         const market = getMarketConfig(orderParams.symbol);
-        
+
+        // --- FIX: Enforce postOnly for LIMIT + GTT orders ---
+        let postOnly = orderParams.postOnly;
+        const isLimit = orderParams.type === OrderType.LIMIT;
+        const isGTT = mapTimeInForce(orderParams.timeInForce) === OrderTimeInForce.GTT;
+        if (isLimit && isGTT) {
+          postOnly = true;
+        }
+        // ----------------------------------------------------
+
         // Create order execution parameters
         const execution = {
           subaccountClient,
@@ -377,7 +386,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           timeInForce: mapTimeInForce(orderParams.timeInForce),
           price: orderParams.price?.toString() || '0',
           size: orderParams.size.toString(),
-          postOnly: orderParams.postOnly || false,
+          postOnly: postOnly || false,
           reduceOnly: orderParams.reduceOnly || false,
           clientId: orderParams.clientId || crypto.randomUUID(),
         };
