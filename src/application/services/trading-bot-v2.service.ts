@@ -14,7 +14,6 @@ import {
 import { Strategy } from "../../domain/models/strategy.model";
 import { MarketData, Order } from "../../domain/models/market.model";
 import { getLogger } from "../../infrastructure/logger";
-import { createMarketActorDefinition } from "../actors/market.actor";
 import { createRiskManagerActorDefinition } from "../actors/risk-manager/risk-manager.actor";
 import { createStrategyManagerActorDefinition } from "../actors/strategy-manager/strategy-manager.actor";
 import { createPerformanceTrackerActorDefinition } from "../actors/performance-tracker/performance-tracker.actor";
@@ -32,6 +31,7 @@ import { createTakeProfitIntegrator } from "../integrators/take-profit-integrato
 import { TakeProfitConfig } from "../actors/take-profit-manager/take-profit-manager.model";
 import { TakeProfitIntegratorConfig } from "../integrators/take-profit-integrator";
 
+// Types de messages que le bot de trading peut traiter
 type TradingBotMessage = 
   | { type: "START" }
   | { type: "STOP" }
@@ -46,6 +46,7 @@ type TradingBotMessage =
   | { type: "SUPERVISOR_HEALTH_CHECK" }
   | { type: "SUPERVISOR_HEALTH_RESULT"; status: string; issues?: string[] };
 
+// État du bot de trading
 interface TradingBotState {
   isRunning: boolean;
   strategyService: StrategyService;
@@ -54,10 +55,10 @@ interface TradingBotState {
   strategyManagerActor: ActorAddress | null;
   performanceTrackerActor: ActorAddress | null;
   marketSupervisorActor: ActorAddress | null;
-  marketActors: Map<string, ActorAddress>; // Added missing property
   positions: Record<string, { symbol: string; direction: 'long' | 'short' | 'none'; size: number }>;
   takeProfitIntegrator: ReturnType<typeof createTakeProfitIntegrator> | null;
   supervisorHealthStatus: { status: string; lastCheck: number; issues?: string[] };
+  watchedSymbols: Set<string>; // Pour suivre les symboles surveillés
 }
 
 export interface TradingBotService {
@@ -68,7 +69,7 @@ export interface TradingBotService {
   analyzeOpenPositions: () => void;
 }
 
-// Helper function to check buying power and adjust order size proportionally - version très agressive
+// Helper function to check buying power and adjust order size proportionally
 const checkBuyingPower = async (
   order: OrderParams,
   currentPrice: number,
@@ -112,26 +113,26 @@ const checkBuyingPower = async (
       }
 
       // Make order size proportional to asset balance if it exceeds available amount
-      // Version plus agressive: augmenté à 65% (au lieu de 50%) de la balance disponible
-      const maxSellSize = availableUSDC * 0.65;
+      // Use a maximum of 50% of available balance for any single order
+      const maxSellSize = availableUSDC * 0.5;
       let adjustedSize = order.size;
 
       if (order.size > maxSellSize) {
         adjustedSize = maxSellSize;
         logger.warn(
-          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (65% of available ${availableUSDC.toFixed(4)})`,
+          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (50% of available ${availableUSDC.toFixed(4)})`,
         );
         return {
           approved: true,
           adjustedSize,
-          reason: `Adjusted sell size to be proportional (65%) to ${order.symbol.split("-")[0]} balance`,
+          reason: `Adjusted sell size to be proportional (50%) to ${order.symbol.split("-")[0]} balance`,
           riskLevel: "MEDIUM",
         };
       }
 
-      // Version plus agressive: 98% au lieu de 95% de la balance disponible
-      if (order.size > availableUSDC * 0.98) {
-        adjustedSize = availableUSDC * 0.98;
+      // Ensure order doesn't exceed available balance (95% safety margin)
+      if (order.size > availableUSDC * 0.95) {
+        adjustedSize = availableUSDC * 0.95;
         adjustedSize = Math.floor(adjustedSize * 10000) / 10000; // Round to 4 decimal places
 
         logger.warn(
@@ -149,29 +150,26 @@ const checkBuyingPower = async (
       return { approved: true, riskLevel: "LOW" };
     }
 
-    // For buy orders, make size proportional to available USDC
-    // Version plus agressive: 45% de fonds disponibles max (au lieu de 30%)
-    const maxFundsPercentage = 0.45; 
+    // Pour les ordres d'achat, ajuster la taille proportionnellement à l'USDC disponible
+    const maxFundsPercentage = 0.3; // 30% des fonds disponibles maximum
     const maxOrderValue = availableUSDC * maxFundsPercentage;
     
-    // Si c'est un ordre limite, vérifier que le prix est raisonnable
-    // Version plus agressive pour les ordres limite: autoriser jusqu'à 1.5% au dessus du prix du marché
+    // Pour les ordres limites, vérifier que le prix est raisonnable
     if (order.type === OrderType.LIMIT && order.price) {
-      // For buy limit orders, ensure price is not too high (more than 1.5% above market)
-      if (order.price > currentPrice * 1.015) {
-        logger.warn(`Limit buy price ${order.price} is more than 1.5% above current price ${currentPrice}. Adjusting.`);
-        // Version plus agressive: acheter jusqu'à 1% au dessus du marché (au lieu de 0.5%)
-        const adjustedPrice = Math.round(currentPrice * 1.01 * 100) / 100; 
+      // Pour les ordres d'achat limite, s'assurer que le prix n'est pas trop élevé
+      if (order.price > currentPrice * 1.01) {
+        logger.warn(`Limit buy price ${order.price} is more than 1% above current price ${currentPrice}. Adjusting.`);
+        const adjustedPrice = Math.round(currentPrice * 1.005 * 100) / 100; // Buy 0.5% above market
         return {
           approved: true,
           adjustedPrice,
-          reason: `Adjusted limit buy price from ${order.price} to ${adjustedPrice} (1.0% above market)`,
+          reason: `Adjusted limit buy price from ${order.price} to ${adjustedPrice} (0.5% above market)`,
           riskLevel: "MEDIUM"
         };
       }
     }
     
-    // Si l'ordre est trop grand, ajuster la taille proportionnellement
+    // Si la commande est trop importante, ajuster à une taille proportionnelle
     if (orderValue > maxOrderValue) {
       // Calculer la taille proportionnelle
       const newSize = maxOrderValue / orderPrice;
@@ -188,8 +186,8 @@ const checkBuyingPower = async (
 
     // Si nous n'avons pas assez pour la taille ajustée, réduire davantage
     if (orderValue > availableUSDC) {
-      // Version plus agressive: rejeter l'ordre seulement si nous avons moins de 5% des fonds requis (au lieu de 10%)
-      if (availableUSDC < orderValue * 0.05) {
+      // Si nous avons moins de 10% des fonds requis, rejeter la commande
+      if (availableUSDC < orderValue * 0.1) {
         logger.error(
           `Insufficient funds to place order. Available: $${availableUSDC.toFixed(2)}, Required: $${orderValue.toFixed(2)}`,
         );
@@ -200,8 +198,8 @@ const checkBuyingPower = async (
         };
       }
 
-      // Version plus agressive: utiliser 95% des fonds disponibles (au lieu de 90%)
-      const newSize = (availableUSDC * 0.95) / orderPrice;
+      // Ajuster la taille pour correspondre aux fonds disponibles (en utilisant 90% des disponibles)
+      const newSize = (availableUSDC * 0.9) / orderPrice;
       const adjustedSize = Math.floor(newSize * 10000) / 10000; // Arrondir à 4 décimales
 
       logger.warn(
@@ -215,7 +213,7 @@ const checkBuyingPower = async (
       };
     }
 
-    // All checks passed, order is proportional to buying power
+    // Tous les contrôles sont passés, la commande est proportionnelle au pouvoir d'achat
     return { approved: true, riskLevel: "LOW" };
   } catch (error) {
     logger.error("Error checking buying power", error as Error);
@@ -224,6 +222,63 @@ const checkBuyingPower = async (
       reason: "Unable to verify account balance",
       riskLevel: "EXTREME",
     };
+  }
+};
+
+// Helper function to close a position
+const closePosition = async (
+  symbol: string,
+  direction: 'long' | 'short' | 'none',
+  size: number,
+  marketDataPort: MarketDataPort,
+  tradingPort: TradingPort,
+  reason: string,
+  context: ActorContext<TradingBotState>
+): Promise<boolean> => {
+  try {
+    // Get current price for this symbol
+    const marketData = await marketDataPort.getLatestMarketData(symbol);
+    
+    // Determine which side to use for closing the position
+    // If position is long, we need to SELL to close it
+    // If position is short, we need to BUY to close it
+    const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
+    
+    // Create a limit order slightly more aggressive than market to ensure execution
+    // For sell: slightly below current price
+    // For buy: slightly above current price
+    const priceBuffer = 0.001; // 0.1% buffer
+    const limitPrice = closeSide === OrderSide.SELL 
+      ? marketData.bid * (1 - priceBuffer)  // Sell slightly below bid
+      : marketData.ask * (1 + priceBuffer); // Buy slightly above ask
+    
+    // Create close order
+    const closeOrder: OrderParams = {
+      symbol,
+      side: closeSide,
+      type: OrderType.LIMIT,
+      size: size,
+      price: Math.round(limitPrice * 100) / 100, // Round to 2 decimal places
+      timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL, // Use IOC to ensure immediate execution or cancellation
+      reduceOnly: true // Ensure this only closes the position
+    };
+    
+    getLogger().info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
+    
+    // Place the order
+    const placedOrder = await tradingPort.placeOrder(closeOrder);
+    getLogger().info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
+    
+    // Update order history
+    context.send(context.self, {
+      type: "ORDER_PLACED",
+      order: placedOrder
+    });
+    
+    return true;
+  } catch (error) {
+    getLogger().error(`Error closing position ${symbol}:`, error as Error);
+    return false;
   }
 };
 
@@ -239,11 +294,13 @@ export const createTradingBotService = (
     performanceConfig: {} as Partial<PerformanceTrackerConfig>,
     takeProfitConfig: {} as Partial<TakeProfitConfig>,
     takeProfitIntegratorConfig: {} as Partial<TakeProfitIntegratorConfig>,
+    supervisorConfig: {} as Partial<MarketSupervisorConfig>,
   },
 ): TradingBotService => {
   const logger = getLogger();
   const actorSystem = createActorSystem();
 
+  // État initial du bot de trading
   const initialState: TradingBotState = {
     isRunning: false,
     strategyService: createStrategyService(),
@@ -252,70 +309,13 @@ export const createTradingBotService = (
     strategyManagerActor: null,
     performanceTrackerActor: null,
     marketSupervisorActor: null,
-    marketActors: new Map<string, ActorAddress>(), // Added missing property
     positions: {},
     takeProfitIntegrator: null,
     supervisorHealthStatus: { status: "UNKNOWN", lastCheck: 0 },
+    watchedSymbols: new Set<string>(), // Ensemble des symboles surveillés
   };
 
-  // Helper function to close a position
-  const closePosition = async (
-    symbol: string,
-    direction: 'long' | 'short' | 'none',
-    size: number,
-    marketDataPort: MarketDataPort,
-    tradingPort: TradingPort,
-    reason: string,
-    context: ActorContext<TradingBotState>
-  ): Promise<boolean> => {
-    try {
-      // Get current price for this symbol
-      const marketData = await marketDataPort.getLatestMarketData(symbol);
-      
-      // Determine which side to use for closing the position
-      // If position is long, we need to SELL to close it
-      // If position is short, we need to BUY to close it
-      const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
-      
-      // Create a limit order much more aggressive than market to ensure execution (version agressive)
-      // For sell: considerably below current price
-      // For buy: considerably above current price
-      const priceBuffer = 0.003; // 0.3% buffer (triplé pour assurer l'exécution)
-      const limitPrice = closeSide === OrderSide.SELL 
-        ? marketData.bid * (1 - priceBuffer)  // Sell 0.3% below bid
-        : marketData.ask * (1 + priceBuffer); // Buy 0.3% above ask
-      
-      // Create close order
-      const closeOrder: OrderParams = {
-        symbol,
-        side: closeSide,
-        type: OrderType.LIMIT,
-        size: size,
-        price: Math.round(limitPrice * 100) / 100, // Round to 2 decimal places
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL, // Use IOC to ensure immediate execution or cancellation
-        reduceOnly: true // Ensure this only closes the position
-      };
-      
-      getLogger().info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
-      
-      // Place the order
-      const placedOrder = await tradingPort.placeOrder(closeOrder);
-      getLogger().info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
-      
-      // Update order history
-      context.send(context.self, {
-        type: "ORDER_PLACED",
-        order: placedOrder
-      });
-      
-      return true;
-    } catch (error) {
-      getLogger().error(`Error closing position ${symbol}:`, error as Error);
-      return false;
-    }
-  };
-
-  // Handler for actor messages
+  // Handler pour les messages d'acteur
   const tradingBotBehavior = async (
     state: TradingBotState,
     message: ActorMessage<TradingBotMessage>,
@@ -325,11 +325,10 @@ export const createTradingBotService = (
 
     switch (payload.type) {
       case "START": {
-        logger.info("Starting trading bot...");
+        logger.info("Starting trading bot with market supervisor architecture...");
 
-        // Create risk manager if not exists
+        // Créer le gestionnaire de risques s'il n'existe pas
         let riskManagerActor = state.riskManagerActor;
-        
         if (!riskManagerActor) {
           const riskManagerDefinition = createRiskManagerActorDefinition(
             tradingPort,
@@ -337,10 +336,9 @@ export const createTradingBotService = (
           );
           riskManagerActor = actorSystem.createActor(riskManagerDefinition);
           logger.info("Created risk manager actor");
-          state.riskManagerActor = riskManagerActor;
         }
 
-        // Create strategy manager if not exists
+        // Créer le gestionnaire de stratégies s'il n'existe pas
         let strategyManagerActor = state.strategyManagerActor;
         if (!strategyManagerActor) {
           const strategyManagerDefinition =
@@ -351,9 +349,8 @@ export const createTradingBotService = (
           logger.info("Created strategy manager actor");
         }
 
-        // Create performance tracker if not exists
+        // Créer le tracker de performance s'il n'existe pas
         let performanceTrackerActor = state.performanceTrackerActor;
-        // Tracker configuration
         if (!performanceTrackerActor) {
           const performanceTrackerDefinition =
             createPerformanceTrackerActorDefinition(options.performanceConfig);
@@ -363,29 +360,34 @@ export const createTradingBotService = (
           logger.info("Created performance tracker actor");
         }
         
-        // Create or get market supervisor actor
+        // Créer le superviseur de marché s'il n'existe pas
         let marketSupervisorActor = state.marketSupervisorActor;
         if (!marketSupervisorActor) {
           const supervisorDefinition = createMarketSupervisorActorDefinition(
             marketDataPort,
             actorSystem,
-            {} // Optional config
+            options.supervisorConfig
           );
           marketSupervisorActor = actorSystem.createActor(supervisorDefinition);
           logger.info("Created market supervisor actor");
-          state.marketSupervisorActor = marketSupervisorActor;
+          
+          // Ajouter tous les symboles surveillés au superviseur
+          for (const symbol of state.watchedSymbols) {
+            actorSystem.send(marketSupervisorActor, {
+              type: "ADD_MARKET",
+              symbol
+            });
+          }
         }
 
-        // Initialize take profit integrator
+        // Initialiser l'intégrateur de prise de profit
         if (!state.takeProfitIntegrator && state.riskManagerActor) {
-          // Créer un adaptateur pour RiskManagerPort à partir de l'acteur
+          // Créer un adaptateur pour RiskManagerPort
           const riskManagerPort: RiskManagerPort = {
             assessOrderRisk: async (order, accountRisk) => {
-              // Simple implementation for now
               return { approved: true, riskLevel: 'LOW' };
             },
             getAccountRisk: async () => {
-              // Default implementation
               return { 
                 totalValue: 10000, 
                 availableBalance: 10000, 
@@ -412,19 +414,21 @@ export const createTradingBotService = (
             analyzeAllOpenPositions: async () => ({})
           };
           
+          // Créer l'intégrateur avec les symboles surveillés
           state.takeProfitIntegrator = createTakeProfitIntegrator(
             actorSystem,
             tradingPort,
             marketDataPort,
             riskManagerPort,
-            { 
-              watchedSymbols: Array.from(state.marketActors.keys()),
+            {
+              watchedSymbols: Array.from(state.watchedSymbols),
               ...options.takeProfitIntegratorConfig
             }
           );
+          
           state.takeProfitIntegrator.start();
           
-          // Configurer le gestionnaire de prise de profit si nécessaire
+          // Configurer le gestionnaire de prise de profit
           if (options.takeProfitConfig) {
             state.takeProfitIntegrator.takeProfitManager.updateConfig(options.takeProfitConfig);
           }
@@ -432,10 +436,31 @@ export const createTradingBotService = (
           logger.info("Take profit manager initialized and started");
         }
 
-        // Start all existing market actors if they exist
-        for (const [symbol, actorAddress] of state.marketActors.entries()) {
-          actorSystem.send(actorAddress, { type: "SUBSCRIBE", symbol });
+        // Abonner tous les symboles via le superviseur de marché
+        if (state.marketSupervisorActor && state.watchedSymbols.size > 0) {
+          actorSystem.send(state.marketSupervisorActor, {
+            type: "SUBSCRIBE_ALL"
+          });
+          logger.info(`Subscribed to ${state.watchedSymbols.size} markets through supervisor`);
         }
+
+        // Programmer l'analyse périodique des positions
+        if (options.positionAnalysisInterval > 0) {
+          setTimeout(() => {
+            if (state.isRunning) {
+              context.send(context.self, { type: "ANALYZE_POSITIONS" });
+            }
+          }, options.positionAnalysisInterval);
+          
+          logger.debug(`Scheduled position analysis every ${options.positionAnalysisInterval / 1000} seconds`);
+        }
+
+        // Programmer une vérification périodique de la santé du superviseur
+        setTimeout(() => {
+          if (state.isRunning) {
+            context.send(context.self, { type: "SUPERVISOR_HEALTH_CHECK" });
+          }
+        }, 60000); // Vérification toutes les minutes
 
         return {
           state: {
@@ -444,6 +469,7 @@ export const createTradingBotService = (
             riskManagerActor,
             strategyManagerActor,
             performanceTrackerActor,
+            marketSupervisorActor,
           },
         };
       }
@@ -451,12 +477,15 @@ export const createTradingBotService = (
       case "STOP": {
         logger.info("Stopping trading bot...");
 
-        // Stop all market actors
-        for (const [symbol, actorAddress] of state.marketActors.entries()) {
-          actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
+        // Désabonner de tous les marchés via le superviseur
+        if (state.marketSupervisorActor) {
+          actorSystem.send(state.marketSupervisorActor, {
+            type: "UNSUBSCRIBE_ALL"
+          });
+          logger.info("Unsubscribed from all markets through supervisor");
         }
         
-        // Arrêter le gestionnaire de prise de profits
+        // Arrêter le gestionnaire de prise de profit
         if (state.takeProfitIntegrator) {
           state.takeProfitIntegrator.stop();
           logger.info("Take profit manager stopped");
@@ -469,44 +498,42 @@ export const createTradingBotService = (
         const { strategy } = payload;
         logger.info(`Adding strategy: ${strategy.getName()}`);
 
-        // Register the strategy
+        // Enregistrer la stratégie
         state.strategyService.registerStrategy(strategy);
 
-        // Extract symbol from strategy and create/start market actor if needed
-        // Each symbol has its own market actor that publishes market data
+        // Extraire le symbole de la stratégie
         const symbol = (
           strategy.getConfig().parameters as Record<string, string>
         ).symbol;
+        
         if (symbol) {
-          if (!state.marketActors.has(symbol)) {
-            // Create a market actor for this symbol if it doesn't exist
-            // This allows multiple strategies to use the same market data for a symbol
-            const onMarketData = (data: MarketData) => {
-              actorSystem.send(context.self, { type: "MARKET_DATA", data });
-            };
-
-            const marketActorDef = createMarketActorDefinition(
-              symbol,
-              marketDataPort,
-              onMarketData,
-              options.pollInterval,
-            );
-
-            const marketActorAddress = actorSystem.createActor(marketActorDef);
-            state.marketActors.set(symbol, marketActorAddress);
-
-            // If the bot is running, subscribe to the market immediately
+          // Ajouter à l'ensemble des symboles surveillés
+          const updatedWatchedSymbols = new Set(state.watchedSymbols);
+          updatedWatchedSymbols.add(symbol);
+          
+          // Ajouter le marché au superviseur s'il existe
+          if (state.marketSupervisorActor) {
+            actorSystem.send(state.marketSupervisorActor, {
+              type: "ADD_MARKET",
+              symbol
+            });
+            
+            // S'abonner immédiatement si le bot est en marche
             if (state.isRunning) {
-              actorSystem.send(marketActorAddress, {
-                type: "SUBSCRIBE",
-                symbol,
+              actorSystem.send(state.marketSupervisorActor, {
+                type: "SUBSCRIBE_ALL"
               });
             }
-
-            logger.debug(`Created market actor for symbol: ${symbol}`);
-          } else {
-            logger.debug(`Using existing market actor for symbol: ${symbol}`);
           }
+          
+          logger.debug(`Added market ${symbol} to watched symbols for strategy ${strategy.getId()}`);
+          
+          return {
+            state: {
+              ...state,
+              watchedSymbols: updatedWatchedSymbols
+            }
+          };
         }
 
         return { state };
@@ -516,16 +543,16 @@ export const createTradingBotService = (
         const { strategyId } = payload;
         logger.info(`Removing strategy: ${strategyId}`);
 
-        // Get the strategy before removing it to check its symbol
+        // Obtenir la stratégie avant de la supprimer pour vérifier son symbole
         const strategy = state.strategyService.getStrategy(strategyId);
         const strategySymbol = strategy
           ? (strategy.getConfig().parameters as Record<string, string>).symbol
           : undefined;
 
-        // Unregister the strategy
+        // Désenregistrer la stratégie
         state.strategyService.unregisterStrategy(strategyId);
 
-        // Check if any other strategies are using this symbol
+        // Vérifier si d'autres stratégies utilisent ce symbole
         if (strategySymbol) {
           const stillInUse = state.strategyService
             .getAllStrategies()
@@ -535,20 +562,27 @@ export const createTradingBotService = (
                 strategySymbol,
             );
 
-          if (!stillInUse && state.marketActors.has(strategySymbol)) {
-            // If no other strategies are using this symbol, unsubscribe and remove the market actor
-            const actorAddress = state.marketActors.get(strategySymbol)!;
-
-            // Unsubscribe from the market
-            actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
-
-            // Stop the actor
-            actorSystem.stop(actorAddress);
-
-            // Remove from our map
-            state.marketActors.delete(strategySymbol);
-
-            logger.debug(`Removed market actor for symbol: ${strategySymbol}`);
+          if (!stillInUse) {
+            // Si aucune autre stratégie n'utilise ce symbole, le retirer
+            const updatedWatchedSymbols = new Set(state.watchedSymbols);
+            updatedWatchedSymbols.delete(strategySymbol);
+            
+            // Retirer le marché du superviseur
+            if (state.marketSupervisorActor) {
+              actorSystem.send(state.marketSupervisorActor, {
+                type: "REMOVE_MARKET",
+                symbol: strategySymbol
+              });
+              
+              logger.debug(`Removed market ${strategySymbol} from supervisor`);
+            }
+            
+            return {
+              state: {
+                ...state,
+                watchedSymbols: updatedWatchedSymbols
+              }
+            };
           }
         }
 
@@ -563,7 +597,7 @@ export const createTradingBotService = (
           `Processing market data for ${data.symbol}: ${data.price}`,
         );
 
-        // Send market data to strategy manager if available
+        // Envoyer les données au gestionnaire de stratégies
         if (state.strategyManagerActor) {
           actorSystem.send(state.strategyManagerActor, {
             type: "PROCESS_MARKET_DATA",
@@ -571,7 +605,7 @@ export const createTradingBotService = (
           });
         }
 
-        // Send market update to risk manager to update positions
+        // Envoyer la mise à jour au gestionnaire de risques
         if (state.riskManagerActor) {
           actorSystem.send(state.riskManagerActor, {
             type: "MARKET_UPDATE",
@@ -588,7 +622,7 @@ export const createTradingBotService = (
           );
         }
 
-        // Send price update to performance tracker
+        // Envoyer la mise à jour au tracker de performance
         if (state.performanceTrackerActor) {
           actorSystem.send(state.performanceTrackerActor, {
             type: "UPDATE_PRICE",
@@ -598,11 +632,10 @@ export const createTradingBotService = (
           });
         }
 
-        // Process market data through all strategies
-        // This will automatically filter and apply only to strategies configured for this symbol
+        // Traiter les données à travers toutes les stratégies
         const signals = await state.strategyService.processMarketData(data);
 
-        // Handle strategy signals for this particular symbol
+        // Gérer les signaux de stratégie pour ce symbole particulier
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
 
@@ -610,19 +643,20 @@ export const createTradingBotService = (
             `Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`,
           );
 
-          // Generate order for the specific strategy that produced the signal
+          // Générer un ordre pour la stratégie spécifique qui a produit le signal
           const order = state.strategyService.generateOrder(
             strategyId,
             signal,
             data,
           );
+          
           if (order) {
             try {
-              // Assess order risk before placing
+              // Évaluer le risque de l'ordre avant de le placer
               let adjustedOrder = { ...order };
               let canPlaceOrder = true;
 
-              // Check buying power and make order size proportional
+              // Vérifier la puissance d'achat et ajuster proportionnellement
               const buyingPowerResult = await checkBuyingPower(
                 order,
                 data.price,
@@ -653,7 +687,7 @@ export const createTradingBotService = (
                   );
                 }
               } else {
-                // Always log the proportion of buying power being used
+                // Toujours journaliser la proportion de puissance d'achat utilisée
                 const balances = await tradingPort.getAccountBalance();
                 const availableUSDC = balances["USDC"] || 0;
                 const orderValue =
@@ -665,7 +699,7 @@ export const createTradingBotService = (
                 );
               }
 
-              // Log order type information
+              // Journaliser les informations sur le type d'ordre
               if (adjustedOrder.type === OrderType.LIMIT && adjustedOrder.price) {
                 const currentPrice = data.price;
                 const priceDiff = Math.abs(adjustedOrder.price - currentPrice);
@@ -676,22 +710,17 @@ export const createTradingBotService = (
                 );
               }
               
-              // Assess additional risk factors if risk manager is available
+              // Évaluer les facteurs de risque supplémentaires
               if (state.riskManagerActor) {
                 logger.info(
                   `Assessing additional risk factors for order on ${order.symbol}`,
                 );
-
-                // Get current account risk data
                 actorSystem.send(state.riskManagerActor, {
                   type: "GET_ACCOUNT_RISK",
                 });
-
-                // In a real actor system, we would use ask pattern or response messages
-                // For now, we trust the buying power check already performed
               }
 
-              // Only place order if approved
+              // Ne placer l'ordre que s'il est approuvé
               if (!canPlaceOrder) {
                 logger.error(
                   `Order for ${order.symbol} not placed due to risk assessment`,
@@ -704,27 +733,14 @@ export const createTradingBotService = (
               logger.info(
                 `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || data.price} USD`,
               );
-              if (adjustedOrder.side === OrderSide.BUY) {
-                logger.info(
-                  `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || data.price)).toFixed(2)} USD`,
-                );
-                
-                if (adjustedOrder.type === OrderType.LIMIT) {
-                  logger.info(
-                    `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
-                  );
-                }
-              }
 
-              // Send order placed message to self to update state
+              // Envoyer un message d'ordre placé à soi-même pour mettre à jour l'état
               context.send(context.self, {
                 type: "ORDER_PLACED",
                 order: placedOrder,
               });
 
-              // For LIMIT orders, we only notify when the order is filled
-              // For MARKET orders, we assume immediate fill
-              // Notify risk manager about filled order
+              // Pour les ordres de marché, nous supposons un remplissage immédiat
               if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
                 actorSystem.send(state.riskManagerActor, {
                   type: "ORDER_FILLED",
@@ -732,7 +748,7 @@ export const createTradingBotService = (
                   fillPrice: data.price,
                 });
                 
-                // Track position in local state for future reference
+                // Suivre la position dans l'état local pour référence future
                 if (signal.type === "entry") {
                   state.positions[order.symbol] = {
                     symbol: order.symbol,
@@ -740,7 +756,7 @@ export const createTradingBotService = (
                     size: adjustedOrder.size,
                   };
                   
-                  // Notifier le gestionnaire de prise de profit d'une nouvelle position
+                  // Notifier le gestionnaire de prise de profit
                   if (state.takeProfitIntegrator) {
                     const position: PositionRisk = {
                       symbol: order.symbol,
@@ -760,18 +776,13 @@ export const createTradingBotService = (
                     state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
                   }
                   
-                  // Puis supprimer la position de l'état local
+                  // Supprimer la position de l'état local
                   delete state.positions[order.symbol];
                 }
-              } else if (state.riskManagerActor) {
-                // For LIMIT orders, we just log that the risk manager will be notified when filled
-                logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
               }
 
-              // Record trade in performance tracker
+              // Enregistrer le trade dans le tracker de performance
               if (state.performanceTrackerActor) {
-                // For MARKET orders, record immediately
-                // For LIMIT orders, we set the status to "pending" until filled
                 const tradeEntry = {
                   id: placedOrder.id,
                   strategyId,
@@ -808,16 +819,26 @@ export const createTradingBotService = (
       }
 
       case "ORDER_PLACED": {
-        // Add the order to history
+        // Ajouter l'ordre à l'historique
         const { order } = payload;
-        state.orderHistory.push(order);
-
-        // Keep only the last 100 orders (optional)
-        if (state.orderHistory.length > 100) {
-          state.orderHistory = state.orderHistory.slice(-100);
+        const updatedOrderHistory = [...state.orderHistory, order];
+        
+        // Ne conserver que les 100 derniers ordres
+        if (updatedOrderHistory.length > 100) {
+          return {
+            state: {
+              ...state,
+              orderHistory: updatedOrderHistory.slice(-100)
+            }
+          };
         }
-
-        return { state };
+        
+        return {
+          state: {
+            ...state,
+            orderHistory: updatedOrderHistory
+          }
+        };
       }
 
       case "RISK_ASSESSMENT_RESULT": {
@@ -829,8 +850,8 @@ export const createTradingBotService = (
           adjustedSize: result.adjustedSize,
         });
 
-        // In a complete implementation, we would process the risk assessment result
-        // and adjust orders accordingly
+        // Dans une implémentation complète, nous traiterions le résultat de l'évaluation des risques
+        // et ajusterions les ordres en conséquence
 
         return { state };
       }
@@ -844,8 +865,8 @@ export const createTradingBotService = (
           netProfit: metrics.netProfit,
         });
 
-        // In a complete implementation, we would update strategy weights
-        // based on performance metrics
+        // Dans une implémentation complète, nous mettrions à jour les poids des stratégies
+        // en fonction des métriques de performance
 
         return { state };
       }
@@ -854,12 +875,12 @@ export const createTradingBotService = (
         logger.info("Analyzing viability of all open positions");
 
         if (state.riskManagerActor) {
-          // Send analyze positions message to risk manager
+          // Envoyer un message d'analyse des positions au gestionnaire de risques
           actorSystem.send(state.riskManagerActor, {
             type: "ANALYZE_OPEN_POSITIONS",
           });
 
-          // Schedule next analysis
+          // Programmer la prochaine analyse
           if (state.isRunning && options.positionAnalysisInterval) {
             setTimeout(() => {
               if (state.isRunning) {
@@ -878,17 +899,17 @@ export const createTradingBotService = (
         if (!isViable) {
           logger.warn(`Position ${symbol} is no longer viable: ${reason}`);
 
-          // Automatically close non-viable positions if indicated
+          // Fermer automatiquement les positions non viables si indiqué
           if (shouldClose) {
             logger.info(`Automatically closing non-viable position: ${symbol}`);
             
-            // Try to get position information from payload or stored positions
+            // Essayer d'obtenir les informations de position
             const position = direction ? 
               { symbol, direction, size: size || 0 } : 
               Object.values(state.positions).find(p => p.symbol === symbol);
             
             if (position && position.size > 0) {
-              // Close the position using the helper function
+              // Fermer la position en utilisant la fonction d'aide
               const success = await closePosition(
                 symbol,
                 position.direction,
@@ -900,18 +921,18 @@ export const createTradingBotService = (
               );
               
               if (success) {
-                // Remove position from tracking
+                // Retirer la position du suivi
                 const updatedPositions = {...state.positions};
                 delete updatedPositions[symbol];
                 
-                // Record in performance tracker if available
+                // Enregistrer dans le tracker de performance
                 if (state.performanceTrackerActor) {
                   const tradeEntry = {
                     id: crypto.randomUUID(),
-                    strategyId: "risk_manager", // Special ID for risk manager initiated trades
+                    strategyId: "risk_manager", // ID spécial pour les trades initiés par le gestionnaire de risques
                     symbol,
                     entryTime: Date.now(),
-                    entryPrice: 0, // Will be updated when order is filled
+                    entryPrice: 0, // Sera mis à jour lorsque l'ordre sera rempli
                     entryOrder: null,
                     quantity: position.size,
                     fees: 0,
@@ -925,7 +946,7 @@ export const createTradingBotService = (
                   });
                 }
                 
-                // Update state to remove position
+                // Mettre à jour l'état pour retirer la position
                 return {
                   state: {
                     ...state,
@@ -945,13 +966,18 @@ export const createTradingBotService = (
       case "SUPERVISOR_HEALTH_CHECK": {
         logger.info("Performing health check for market supervisor");
 
-        // If we have a supervisor actor, request a health check
-        if (state.marketActors.size > 0) {
-          for (const [symbol, actorAddress] of state.marketActors.entries()) {
-            actorSystem.send(actorAddress, { type: "HEALTH_CHECK" });
-          }
+        // Si nous avons un acteur superviseur, demander une vérification de santé
+        if (state.marketSupervisorActor) {
+          actorSystem.send(state.marketSupervisorActor, { type: "CHECK_HEALTH" });
+          
+          // Programmer la prochaine vérification de santé dans 60 secondes
+          setTimeout(() => {
+            if (state.isRunning) {
+              context.send(context.self, { type: "SUPERVISOR_HEALTH_CHECK" });
+            }
+          }, 60000);
         } else {
-          logger.warn("No market actors available for health check");
+          logger.warn("No market supervisor actor available for health check");
         }
 
         return { state };
@@ -964,13 +990,17 @@ export const createTradingBotService = (
           issues: issues ? issues.join(", ") : "None",
         });
 
-        // Update supervisor health status in the state
-        state.supervisorHealthStatus = { status, lastCheck: Date.now(), issues };
-
-        // In a complete implementation, we might take actions based on the health status
-        // For now, we just log the result
-
-        return { state };
+        // Mettre à jour l'état de santé du superviseur dans l'état
+        return {
+          state: {
+            ...state,
+            supervisorHealthStatus: { 
+              status, 
+              lastCheck: Date.now(), 
+              ...(issues && { issues }) 
+            }
+          }
+        };
       }
 
       default:
@@ -978,26 +1008,22 @@ export const createTradingBotService = (
     }
   };
 
-  // Create the main bot actor that will manage all strategies and market actors
-  // The trading bot actor coordinates all the market data and strategy signals,
-  // and manages the risk, strategy, and performance actors
+  // Créer l'acteur principal du bot qui gérera toutes les stratégies et les acteurs de marché
+  // L'acteur du bot de trading coordonne toutes les données de marché et les signaux de stratégie,
+  // et gère les acteurs de risque, de stratégie et de performance
   const botAddress = actorSystem.createActor({
     initialState,
     behavior: tradingBotBehavior,
     supervisorStrategy: { type: "restart" },
   });
 
-  // Public API methods
+  // Méthodes de l'API publique
   const start = (): void => {
     actorSystem.send(botAddress, { type: "START" });
   };
 
   const stop = (): void => {
     actorSystem.send(botAddress, { type: "STOP" });
-
-    // In a real implementation, we might want to explicitly stop
-    // all the child actors and save their state
-    // For now this is handled by the actor system's hierarchy
   };
 
   const addStrategy = (strategy: Strategy): void => {
@@ -1014,11 +1040,11 @@ export const createTradingBotService = (
     });
   };
 
-  // Return the public API
   const analyzeOpenPositions = (): void => {
     actorSystem.send(botAddress, { type: "ANALYZE_POSITIONS" });
   };
 
+  // Retourner l'API publique
   return {
     start,
     stop,

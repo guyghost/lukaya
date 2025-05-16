@@ -20,18 +20,18 @@ export const createRiskManagerActorDefinition = (
 ): ActorDefinition<RiskManagerState, RiskManagerMessage> => {
   const logger = getLogger();
   
-  // Default configuration
+  // Default configuration - Mise à jour pour plus de risque
   const defaultConfig: RiskManagerConfig = {
-    maxRiskPerTrade: 0.01, // 1% of account per trade
-    maxPositionSize: 0.2,  // 20% of account in one position
-    maxDrawdownPercent: 0.1, // 10% max drawdown
-    maxLeverage: 2.0,      // 2x max leverage
-    stopLossPercent: 0.02, // 2% stop loss
-    takeProfitPercent: 0.04, // 4% take profit
+    maxRiskPerTrade: 0.02, // 2% of account per trade (doublé)
+    maxPositionSize: 0.25,  // 25% of account in one position (augmenté)
+    maxDrawdownPercent: 0.15, // 15% max drawdown (augmenté)
+    maxLeverage: 3.0,      // 3x max leverage (augmenté)
+    stopLossPercent: 0.03, // 3% stop loss (augmenté)
+    takeProfitPercent: 0.06, // 6% take profit (augmenté)
     accountSize: 10000,    // $10,000 initial account size
-    maxDailyLoss: 0.05,    // 5% max daily loss
-    maxOpenPositions: 5,   // Max 5 positions at once
-    diversificationWeight: 0.5, // Weight for diversification
+    maxDailyLoss: 0.08,    // 8% max daily loss (augmenté)
+    maxOpenPositions: 7,   // Max 7 positions at once (augmenté)
+    diversificationWeight: 0.4, // Weight for diversification (réduit)
     volatilityAdjustment: true, // Adjust for volatility
     correlationMatrix: {}  // Empty correlation matrix initially
   };
@@ -317,7 +317,7 @@ export const createRiskManagerActorDefinition = (
     config: RiskManagerConfig,
     marketVolatility: number = 0
   ): PositionViabilityResult => {
-    // Default result (viable)
+    // Default result (viable) - More aggressive stance
     const defaultResult: PositionViabilityResult = {
       isViable: true,
       reason: "Position is performing normally",
@@ -328,13 +328,14 @@ export const createRiskManagerActorDefinition = (
       size: position.size
     };
     
-    // 1. Check for stop loss breach
+    // 1. Check for stop loss breach - More aggressive threshold
     const priceDelta = position.currentPrice - position.entryPrice;
     const priceChangePercent = Math.abs(priceDelta) / position.entryPrice;
     
-    // Stop loss check - differently for long and short positions
+    // Stop loss check - less sensitive thresholds for more risk tolerance
     if (position.direction === 'long' && priceDelta < 0) {
       const lossPercent = Math.abs(priceDelta) / position.entryPrice;
+      // Only trigger stop loss at the full configured amount (no earlier intervention)
       if (lossPercent >= config.stopLossPercent) {
         return {
           isViable: false,
@@ -347,12 +348,12 @@ export const createRiskManagerActorDefinition = (
         };
       }
       
-      // Close to stop loss
-      if (lossPercent >= config.stopLossPercent * 0.8) {
+      // Only warn when very close to stop loss (90% of stop loss instead of 80%)
+      if (lossPercent >= config.stopLossPercent * 0.9) {
         return {
           isViable: true,
           reason: `Near stop loss: Down ${(lossPercent * 100).toFixed(2)}% from entry price`,
-          recommendation: "Monitor closely or reduce position size",
+          recommendation: "Monitor closely but allow for potential reversal",
           riskLevel: "HIGH",
           shouldClose: false,
           direction: position.direction,
@@ -361,6 +362,7 @@ export const createRiskManagerActorDefinition = (
       }
     } else if (position.direction === 'short' && priceDelta > 0) {
       const lossPercent = Math.abs(priceDelta) / position.entryPrice;
+      // Only trigger at the full configured stop loss
       if (lossPercent >= config.stopLossPercent) {
         return {
           isViable: false,
@@ -373,12 +375,12 @@ export const createRiskManagerActorDefinition = (
         };
       }
       
-      // Close to stop loss
-      if (lossPercent >= config.stopLossPercent * 0.8) {
+      // Only warn when very close to stop loss (90% of stop loss)
+      if (lossPercent >= config.stopLossPercent * 0.9) {
         return {
           isViable: true,
           reason: `Near stop loss: Up ${(lossPercent * 100).toFixed(2)}% from entry price`,
-          recommendation: "Monitor closely or reduce position size",
+          recommendation: "Monitor closely but allow for potential reversal",
           riskLevel: "HIGH",
           shouldClose: false,
           direction: position.direction,
@@ -403,12 +405,13 @@ export const createRiskManagerActorDefinition = (
       }
     }
     
-    // 3. Check for excessive holding time
+    // 3. Check for excessive holding time - More aggressive timing
     if (position.holdingTime) {
       const holdingDays = position.holdingTime / (1000 * 60 * 60 * 24);
       
-      // If holding more than 7 days without profit
-      if (holdingDays > 7 && position.unrealizedPnl <= 0) {
+      // More aggressive - Allow longer holding time for positions without profit
+      // Increased from 7 days to 10 days to give positions more time to recover
+      if (holdingDays > 10 && position.unrealizedPnl <= 0) {
         return {
           isViable: false,
           reason: `Position held for ${holdingDays.toFixed(1)} days without profit`,
@@ -420,9 +423,10 @@ export const createRiskManagerActorDefinition = (
         };
       }
       
-      // If holding long time with small profit
-      if (holdingDays > 14 && position.unrealizedPnl > 0 && 
-          (position.unrealizedPnl / (position.entryPrice * position.size)) < 0.01) {
+      // More aggressive - Allow longer holding time for positions with small profit
+      // and higher minimum profit threshold (2% instead of 1%)
+      if (holdingDays > 18 && position.unrealizedPnl > 0 && 
+          (position.unrealizedPnl / (position.entryPrice * position.size)) < 0.02) {
         return {
           isViable: false,
           reason: `Position held for ${holdingDays.toFixed(1)} days with minimal profit`,
@@ -436,14 +440,19 @@ export const createRiskManagerActorDefinition = (
     }
     
     // 4. Check for trend reversal (using market volatility as a simplified proxy)
+    // More aggressive approach to market volatility - higher threshold before closing
     if (marketVolatility > 0) {
-      // In a real system, we would analyze trend using technical indicators
-      const trendStrength = marketVolatility > 0.03 ? "weak" : "strong";
+      // More aggressive: Increased volatility threshold from 0.03 to 0.05
+      // to allow for more market movement before considering trend reversal
+      const trendStrength = marketVolatility > 0.05 ? "weak" : "strong";
       
-      if (trendStrength === "weak" && position.unrealizedPnl < 0) {
+      // Only close when significantly in loss (not just any loss)
+      // This allows riding out more volatility for potentially higher returns
+      if (trendStrength === "weak" && 
+          (position.unrealizedPnl / (position.entryPrice * position.size)) < -0.02) {
         return {
           isViable: false,
-          reason: "Market showing signs of trend reversal with position in loss",
+          reason: "Market showing significant trend reversal with position in substantial loss",
           recommendation: "Close position to prevent further losses",
           riskLevel: "HIGH",
           shouldClose: true,

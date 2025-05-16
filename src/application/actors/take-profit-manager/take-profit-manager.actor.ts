@@ -19,19 +19,19 @@ export const createTakeProfitManagerActorDefinition = (
 ): ActorDefinition<TakeProfitState, TakeProfitMessage> => {
   const logger = getLogger();
 
-  // Configuration par défaut
+  // Configuration par défaut - Mise à jour pour une stratégie plus agressive
   const defaultConfig: TakeProfitConfig = {
     enabled: true,
     profitTiers: [
-      { profitPercentage: 10, closePercentage: 25 },
-      { profitPercentage: 20, closePercentage: 33 },
-      { profitPercentage: 30, closePercentage: 50 },
-      { profitPercentage: 50, closePercentage: 100 },
+      { profitPercentage: 15, closePercentage: 20 }, // Objectif plus élevé avant la première sortie partielle
+      { profitPercentage: 30, closePercentage: 30 }, // Sortie partielle plus petite
+      { profitPercentage: 45, closePercentage: 40 }, // Objectifs plus ambitieux
+      { profitPercentage: 75, closePercentage: 100 }, // Objectif final beaucoup plus élevé
     ],
-    cooldownPeriod: 10 * 60 * 1000, // 10 minutes
-    priceTolerance: 0.5, // 0.5% de tolérance
-    trailingMode: false,
-    minOrderSizePercent: 5, // Taille minimale d'ordre: 5% de la position initiale
+    cooldownPeriod: 5 * 60 * 1000, // 5 minutes (réduit)
+    priceTolerance: 0.8, // 0.8% de tolérance (augmenté)
+    trailingMode: true, // Activer le mode trailing pour capturer plus de hausse
+    minOrderSizePercent: 3, // Taille minimale d'ordre: 3% de la position initiale (réduit)
   };
 
   // Fusionner avec la configuration fournie
@@ -186,13 +186,31 @@ export const createTakeProfitManagerActorDefinition = (
         size: result.orderSize,
       });
 
-      // Créer les paramètres de l'ordre
+      // Créer les paramètres de l'ordre - Version plus agressive
+      // Utilise des ordres LIMIT au lieu de MARKET pour potentiellement obtenir un meilleur prix
+      // et ajoute un décalage de prix agressif en faveur de l'ordre
+      
+      // Calculer le prix limite en fonction de la direction (avec un buffer de prix favorable)
+      const priceBuffer = 0.002; // 0.2% de buffer de prix
+      // Assurer que nous avons un prix valide, en utilisant le prix d'entrée comme fallback
+      const basePrice = result.targetPrice || position.entryPrice;
+      let limitPrice: number;
+      
+      if (result.orderSide === OrderSide.BUY) {
+        // Pour un achat (clôture d'un short), nous voulons un prix légèrement inférieur
+        limitPrice = basePrice * (1 - priceBuffer);
+      } else {
+        // Pour une vente (clôture d'un long), nous voulons un prix légèrement supérieur
+        limitPrice = basePrice * (1 + priceBuffer);
+      }
+      
       const orderParams: OrderParams = {
         symbol: result.symbol,
         side: result.orderSide,
-        type: OrderType.MARKET,
+        type: OrderType.LIMIT,
         size: result.orderSize,
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL,
+        price: limitPrice,
+        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL, // Exécuter immédiatement ou annuler
       };
 
       // Placer l'ordre via le TradingPort

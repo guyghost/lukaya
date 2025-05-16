@@ -2,7 +2,7 @@
 
 import { loadConfig, getNetworkFromString } from "./config/config";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
-import { createTradingBotService } from "./application/services/trading-bot.service";
+import { createTradingBotService } from "./application/services";
 import { createSimpleMAStrategy } from "./adapters/primary/simple-ma.strategy";
 import { initializeLogger, getLogger } from "./infrastructure/logger";
 import { RiskManagerConfig } from "./application/actors/risk-manager/risk-manager.model";
@@ -31,18 +31,19 @@ const main = async (): Promise<void> => {
   
   // Prepare configurations for the specialized actors
   const riskConfig: Partial<RiskManagerConfig> = {
-    maxRiskPerTrade: config.trading.riskPerTrade,
-    stopLossPercent: config.trading.stopLossPercent,
+    maxRiskPerTrade: Math.min(config.trading.riskPerTrade * 1.75, 0.08), // Augmentation de 75% avec plafond à 8%
+    stopLossPercent: config.trading.stopLossPercent * 1.5, // Augmentation de 50% (perte plus grande avant de sortir)
     accountSize: config.trading.defaultAccountSize,
-    maxLeverage: config.trading.maxLeverage,
-    maxOpenPositions: 5,
-    maxPositionSize: config.trading.maxCapitalPerTrade
+    maxLeverage: Math.min(config.trading.maxLeverage * 1.5, 10), // Augmentation de 50% avec plafond à 10x
+    maxOpenPositions: 8, // Augmenté de 5 à 8
+    maxPositionSize: config.trading.maxCapitalPerTrade * 1.3 // Augmentation de 30%
   };
   
   const strategyConfig: Partial<StrategyManagerConfig> = {
     autoAdjustWeights: true,
-    maxActiveStrategies: 10,
-    conflictResolutionMode: 'performance_weighted'
+    maxActiveStrategies: 12, // Augmenté de 10 à 12
+    conflictResolutionMode: 'performance_weighted',
+    minPerformanceThreshold: 0.4 // Réduit le seuil minimal de performance (accepter des stratégies moins performantes)
   };
   
   const performanceConfig: Partial<PerformanceTrackerConfig> = {
@@ -54,34 +55,42 @@ const main = async (): Promise<void> => {
   const takeProfitConfig: Partial<TakeProfitConfig> = {
     enabled: true,
     profitTiers: [
-      { profitPercentage: 10, closePercentage: 25 },
-      { profitPercentage: 20, closePercentage: 33 },
-      { profitPercentage: 30, closePercentage: 50 },
-      { profitPercentage: 50, closePercentage: 100 }
+      { profitPercentage: 15, closePercentage: 20 }, // Plus de profit requis avant de commencer à sortir
+      { profitPercentage: 25, closePercentage: 30 }, // Sortir plus lentement pour laisser courir les profits
+      { profitPercentage: 40, closePercentage: 50 }, // Niveaux plus ambitieux
+      { profitPercentage: 70, closePercentage: 100 } // Objectif final plus ambitieux
     ],
-    cooldownPeriod: 10 * 60 * 1000, // 10 minutes
-    trailingMode: false
+    cooldownPeriod: 5 * 60 * 1000, // 5 minutes (réduit de 10 à 5 minutes)
+    trailingMode: true // Activer le mode trailing pour capturer plus de hausse
   };
   
   const takeProfitIntegratorConfig: Partial<TakeProfitIntegratorConfig> = {
     priceCheckInterval: 30 * 1000, // 30 secondes
     positionCheckInterval: 2 * 60 * 1000 // 2 minutes
   };
+  
+  // Configuration pour le superviseur de marché
+  const marketSupervisorConfig = {
+    maxMarkets: 50, // Nombre maximum de marchés à surveiller
+    pollingInterval: config.trading.pollInterval,
+    priceChangeThreshold: 0.5 // 0.5% de changement de prix pour notification
+  };
 
   // Initialize trading bot service with separate ports using factory function
-  logger.debug("Setting up trading bot service...");
+  logger.debug("Setting up trading bot service with market supervisor architecture...");
   const tradingBot = createTradingBotService(
     marketDataPort, 
     tradingPort,
     { 
       pollInterval: config.trading.pollInterval,
       positionAnalysisInterval: config.trading.positionAnalysisInterval,
-      maxFundsPerOrder: config.trading.maxFundsPerOrder,
+      maxFundsPerOrder: config.trading.maxFundsPerOrder * 1.4, // Augmenté de 40%
       riskConfig,
       strategyConfig,
       performanceConfig,
       takeProfitConfig,
-      takeProfitIntegratorConfig
+      takeProfitIntegratorConfig,
+      supervisorConfig: marketSupervisorConfig
     }
   );
   
