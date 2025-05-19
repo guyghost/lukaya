@@ -226,10 +226,17 @@ export const createMarketSupervisorActorDefinition = (
         // Log détaillé pour les changements significatifs
         if (Math.abs(percentChange) >= state.config.priceChangeThreshold) {
           logger.info(
-            `Significant price change for ${symbol}: ${price} (${percentChange.toFixed(2)}%)`
+            `[MARKET_SUPERVISOR] Significant price change for ${symbol}: ${price} (${percentChange.toFixed(2)}%), timestamp: ${new Date(timestamp).toISOString()}`
           );
         } else {
-          logger.debug(`Market data received for ${symbol}: ${price}`);
+          logger.debug(`[MARKET_SUPERVISOR] Market data received for ${symbol}: ${price}, timestamp: ${new Date(timestamp).toISOString()}`);
+        }
+        
+        // Log des statistiques de marché (toutes les X mises à jour)
+        if (timestamp % 30000 < 3000) { // Log environ toutes les 30 secondes
+          const activeMarkets = state.subscribedSymbols.size;
+          const dataPoints = state.lastMarketData.size;
+          logger.info(`[MARKET_SUPERVISOR] Stats: Monitoring ${activeMarkets} active markets, ${dataPoints} markets with data points`);
         }
         
         // Retourner l'état mis à jour

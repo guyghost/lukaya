@@ -19,19 +19,19 @@ export const createTakeProfitManagerActorDefinition = (
 ): ActorDefinition<TakeProfitState, TakeProfitMessage> => {
   const logger = getLogger();
 
-  // Configuration par défaut - Mise à jour pour une stratégie plus agressive
+  // Configuration par défaut - Mise à jour pour une stratégie encore plus agressive
   const defaultConfig: TakeProfitConfig = {
     enabled: true,
     profitTiers: [
-      { profitPercentage: 15, closePercentage: 20 }, // Objectif plus élevé avant la première sortie partielle
-      { profitPercentage: 30, closePercentage: 30 }, // Sortie partielle plus petite
-      { profitPercentage: 45, closePercentage: 40 }, // Objectifs plus ambitieux
-      { profitPercentage: 75, closePercentage: 100 }, // Objectif final beaucoup plus élevé
+      { profitPercentage: 20, closePercentage: 15 }, // Objectif plus élevé avant la première sortie partielle
+      { profitPercentage: 40, closePercentage: 25 }, // Sortie partielle plus petite
+      { profitPercentage: 60, closePercentage: 30 }, // Objectifs plus ambitieux
+      { profitPercentage: 100, closePercentage: 100 }, // Objectif final beaucoup plus élevé
     ],
-    cooldownPeriod: 5 * 60 * 1000, // 5 minutes (réduit)
-    priceTolerance: 0.8, // 0.8% de tolérance (augmenté)
+    cooldownPeriod: 3 * 60 * 1000, // 3 minutes (réduit davantage)
+    priceTolerance: 1.2, // 1.2% de tolérance (augmenté)
     trailingMode: true, // Activer le mode trailing pour capturer plus de hausse
-    minOrderSizePercent: 3, // Taille minimale d'ordre: 3% de la position initiale (réduit)
+    minOrderSizePercent: 2, // Taille minimale d'ordre: 2% de la position initiale (réduit davantage)
   };
 
   // Fusionner avec la configuration fournie
@@ -74,6 +74,7 @@ export const createTakeProfitManagerActorDefinition = (
     
     // Position non trouvée ou déjà fermée
     if (!position || position.currentSize <= 0) {
+      logger.debug(`[TAKE_PROFIT] Skipping analysis for ${symbol}: position not found or already closed`);
       return {
         shouldTakeProfit: false,
         symbol,
@@ -83,6 +84,8 @@ export const createTakeProfitManagerActorDefinition = (
 
     // Calculer le profit actuel en pourcentage
     const profitPercentage = calculateProfitPercentage(position, currentPrice);
+    
+    logger.debug(`[TAKE_PROFIT] Analyzing ${symbol}: ${position.direction} position, size: ${position.currentSize}, entry: ${position.entryPrice}, current: ${currentPrice}, profit: ${profitPercentage.toFixed(2)}%`);
     
     // Vérifier si nous sommes en période de refroidissement
     const now = Date.now();
@@ -180,10 +183,16 @@ export const createTakeProfitManagerActorDefinition = (
     if (!position) return;
 
     try {
-      logger.info(`Exécution de prise de profit pour ${result.symbol}`, {
+      logger.info(`[TAKE_PROFIT] Exécution de prise de profit pour ${result.symbol}`, {
         tier: result.triggerTier,
-        profit: result.currentProfitPercentage,
+        profit: result.currentProfitPercentage ? result.currentProfitPercentage.toFixed(2) + '%' : 'N/A',
         size: result.orderSize,
+        direction: position.direction,
+        currentSize: position.currentSize,
+        entryPrice: position.entryPrice,
+        currentPrice: result.targetPrice,
+        reason: result.reason,
+        tierHistory: position.triggeredTiers.join(',')
       });
 
       // Créer les paramètres de l'ordre - Version plus agressive

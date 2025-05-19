@@ -20,18 +20,18 @@ export const createRiskManagerActorDefinition = (
 ): ActorDefinition<RiskManagerState, RiskManagerMessage> => {
   const logger = getLogger();
   
-  // Default configuration - Mise à jour pour plus de risque
+  // Default configuration - Mise à jour pour un profil de risque encore plus agressif
   const defaultConfig: RiskManagerConfig = {
-    maxRiskPerTrade: 0.02, // 2% of account per trade (doublé)
-    maxPositionSize: 0.25,  // 25% of account in one position (augmenté)
-    maxDrawdownPercent: 0.15, // 15% max drawdown (augmenté)
-    maxLeverage: 3.0,      // 3x max leverage (augmenté)
-    stopLossPercent: 0.03, // 3% stop loss (augmenté)
-    takeProfitPercent: 0.06, // 6% take profit (augmenté)
+    maxRiskPerTrade: 0.04, // 4% of account per trade (doublé encore)
+    maxPositionSize: 0.35,  // 35% of account in one position (augmenté)
+    maxDrawdownPercent: 0.20, // 20% max drawdown (augmenté significativement)
+    maxLeverage: 4.5,      // 4.5x max leverage (augmenté significativement)
+    stopLossPercent: 0.05, // 5% stop loss (augmenté pour donner plus de marge)
+    takeProfitPercent: 0.10, // 10% take profit (augmenté pour viser des gains plus importants)
     accountSize: 10000,    // $10,000 initial account size
-    maxDailyLoss: 0.08,    // 8% max daily loss (augmenté)
-    maxOpenPositions: 7,   // Max 7 positions at once (augmenté)
-    diversificationWeight: 0.4, // Weight for diversification (réduit)
+    maxDailyLoss: 0.12,    // 12% max daily loss (augmenté significativement)
+    maxOpenPositions: 9,   // Max 9 positions at once (augmenté)
+    diversificationWeight: 0.3, // Weight for diversification (réduit encore pour favoriser la concentration)
     volatilityAdjustment: true, // Adjust for volatility
     correlationMatrix: {}  // Empty correlation matrix initially
   };
@@ -63,6 +63,43 @@ export const createRiskManagerActorDefinition = (
   };
   
   // Helper functions
+  
+  // Analyser la tendance générale du marché
+  const getMarketTrend = (
+    state: RiskManagerState,
+    symbols: string[]
+  ): 'STRONGLY_BULLISH' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' | 'STRONGLY_BEARISH' => {
+    // Default to neutral if we don't have enough data
+    if (symbols.length === 0) return 'NEUTRAL';
+    
+    // Count how many positions are in profit
+    let bullishCount = 0;
+    let bearishCount = 0;
+    
+    for (const symbol of symbols) {
+      const position = state.positions[symbol];
+      if (!position) continue;
+      
+      if (position.unrealizedPnl > 0) {
+        bullishCount++;
+      } else if (position.unrealizedPnl < 0) {
+        bearishCount++;
+      }
+    }
+    
+    const totalPositions = bullishCount + bearishCount;
+    if (totalPositions === 0) return 'NEUTRAL';
+    
+    const bullishRatio = bullishCount / totalPositions;
+    
+    // Determine market trend based on profit ratio
+    if (bullishRatio > 0.8) return 'STRONGLY_BULLISH';
+    if (bullishRatio > 0.6) return 'BULLISH';
+    if (bullishRatio < 0.2) return 'STRONGLY_BEARISH';
+    if (bullishRatio < 0.4) return 'BEARISH';
+    return 'NEUTRAL';
+  };
+  
   const calculatePositionRisk = (
     symbol: string, 
     size: number,
@@ -134,17 +171,17 @@ export const createRiskManagerActorDefinition = (
       ? totalPositionValue / state.config.accountSize
       : 0;
     
-    // Determine overall risk level
+    // Determine overall risk level - Plus tolérant aux risques élevés
     let currentRiskLevel: RiskLevel = 'LOW';
     
-    if (drawdownPercent > state.config.maxDrawdownPercent * 0.8 || 
-        leverageUsed > state.config.maxLeverage * 0.8) {
+    if (drawdownPercent > state.config.maxDrawdownPercent * 0.9 || 
+        leverageUsed > state.config.maxLeverage * 0.9) {
       currentRiskLevel = 'EXTREME';
-    } else if (drawdownPercent > state.config.maxDrawdownPercent * 0.6 || 
-               leverageUsed > state.config.maxLeverage * 0.6) {
+    } else if (drawdownPercent > state.config.maxDrawdownPercent * 0.75 || 
+               leverageUsed > state.config.maxLeverage * 0.75) {
       currentRiskLevel = 'HIGH';
-    } else if (drawdownPercent > state.config.maxDrawdownPercent * 0.3 || 
-               leverageUsed > state.config.maxLeverage * 0.3) {
+    } else if (drawdownPercent > state.config.maxDrawdownPercent * 0.5 || 
+               leverageUsed > state.config.maxLeverage * 0.5) {
       currentRiskLevel = 'MEDIUM';
     }
     
@@ -170,15 +207,26 @@ export const createRiskManagerActorDefinition = (
     accountRisk: AccountRisk,
     state: RiskManagerState
   ): RiskAssessmentResult => {
-    logger.debug(`Assessing risk for order on ${order.symbol}`, { order });
+    logger.info(`[RISK_MANAGER] Assessing risk for order on ${order.symbol}`, { 
+      symbol: order.symbol,
+      side: order.side, 
+      size: order.size,
+      type: order.type,
+      price: order.price || 'market',
+      availableBalance: accountRisk.availableBalance,
+      maxPositionSize: accountRisk.maxPositionSize,
+      currentRiskLevel: accountRisk.currentRiskLevel,
+      totalPositions: Object.keys(state.positions).length
+    });
     
     // Get current price if not specified in order
     let orderPrice = order.price;
     if (!orderPrice && state.positions[order.symbol]) {
       orderPrice = state.positions[order.symbol].currentPrice;
+      logger.debug(`[RISK_MANAGER] Using current position price: ${orderPrice} for ${order.symbol}`);
     } else if (!orderPrice) {
       // If no price specified and no position exists, this is a risky situation
-      logger.warn(`No price specified for order on ${order.symbol} and no current position exists`);
+      logger.warn(`[RISK_MANAGER] No price specified for order on ${order.symbol} and no current position exists`);
       orderPrice = 0; // Will be caught by zero-price check below
     }
     
@@ -195,10 +243,25 @@ export const createRiskManagerActorDefinition = (
     // Calculate order value
     const orderValue = order.size * orderPrice;
     
-    // Check if we are at max positions
+    // Check if we are at max positions - Plus tolérant pour les positions supplémentaires
     const currentOpenPositions = Object.keys(state.positions).length;
     if (currentOpenPositions >= state.config.maxOpenPositions && 
         !state.positions[order.symbol]) {
+      // Permettre jusqu'à 2 positions supplémentaires si le marché est favorable
+      const marketTrend = getMarketTrend(state, Object.keys(state.positions));
+      
+      if (marketTrend === 'STRONGLY_BULLISH' && currentOpenPositions < state.config.maxOpenPositions + 2) {
+        logger.info(`[RISK_MANAGER] Allowing position beyond max limit (${currentOpenPositions}/${state.config.maxOpenPositions}) due to strongly bullish market`);
+        // Autoriser mais réduire la taille
+        return {
+          approved: true,
+          adjustedSize: order.size * 0.7,
+          reason: `Reduced position size (exceeding max positions in bullish market)`,
+          riskLevel: 'HIGH',
+          recommendations: ['Consider closing underperforming positions soon']
+        };
+      }
+      
       return {
         approved: false,
         reason: `Max number of open positions (${state.config.maxOpenPositions}) reached`,

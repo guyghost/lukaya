@@ -14,6 +14,7 @@ import {
 import { Strategy } from "../../domain/models/strategy.model";
 import { MarketData, Order } from "../../domain/models/market.model";
 import { getLogger } from "../../infrastructure/logger";
+import { metrics, riskTracker } from "../../infrastructure/metrics";
 import { createRiskManagerActorDefinition } from "../actors/risk-manager/risk-manager.actor";
 import { createStrategyManagerActorDefinition } from "../actors/strategy-manager/strategy-manager.actor";
 import { createPerformanceTrackerActorDefinition } from "../actors/performance-tracker/performance-tracker.actor";
@@ -82,6 +83,11 @@ const checkBuyingPower = async (
   riskLevel: RiskLevel;
 }> => {
   const logger = getLogger();
+  logger.debug(`[TRADING_BOT] Checking buying power for order on ${order.symbol}`, {
+    side: order.side,
+    size: order.size,
+    price: order.price || currentPrice
+  });
 
   try {
     const balances = await tradingPort.getAccountBalance();
@@ -90,6 +96,7 @@ const checkBuyingPower = async (
     const orderPrice = order.price || currentPrice;
 
     if (!orderPrice || orderPrice <= 0) {
+      logger.warn(`[TRADING_BOT] Invalid price for order on ${order.symbol}: ${orderPrice}`);
       return {
         approved: false,
         reason: "Invalid price: Order price must be positive",
@@ -97,132 +104,141 @@ const checkBuyingPower = async (
       };
     }
 
-    const orderValue = order.size * orderPrice;
-
-    // For sell orders, handle proportionally to asset balance
+    // Sépare la logique pour les ordres d'achat et de vente
     if (order.side === OrderSide.SELL) {
-      if (availableUSDC <= 0) {
-        logger.error(
-          `Cannot sell ${order.symbol}: No ${order.symbol.split("-")[0]} balance available`,
-        );
-        return {
-          approved: false,
-          reason: `Cannot sell ${order.symbol.split("-")[0]}: No balance available`,
-          riskLevel: "EXTREME",
-        };
-      }
-
-      // Make order size proportional to asset balance if it exceeds available amount
-      // Use a maximum of 50% of available balance for any single order
-      const maxSellSize = availableUSDC * 0.5;
-      let adjustedSize = order.size;
-
-      if (order.size > maxSellSize) {
-        adjustedSize = maxSellSize;
-        logger.warn(
-          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (50% of available ${availableUSDC.toFixed(4)})`,
-        );
-        return {
-          approved: true,
-          adjustedSize,
-          reason: `Adjusted sell size to be proportional (50%) to ${order.symbol.split("-")[0]} balance`,
-          riskLevel: "MEDIUM",
-        };
-      }
-
-      // Ensure order doesn't exceed available balance (95% safety margin)
-      if (order.size > availableUSDC * 0.95) {
-        adjustedSize = availableUSDC * 0.95;
-        adjustedSize = Math.floor(adjustedSize * 10000) / 10000; // Round to 4 decimal places
-
-        logger.warn(
-          `Reducing sell order size from ${order.size} to ${adjustedSize} ${order.symbol.split("-")[0]} (available: ${availableUSDC.toFixed(4)})`,
-        );
-        return {
-          approved: true,
-          adjustedSize,
-          reason: `Reduced sell size due to available ${order.symbol.split("-")[0]} balance`,
-          riskLevel: "HIGH",
-        };
-      }
-
-      // We have enough of the asset to sell
-      return { approved: true, riskLevel: "LOW" };
+      return checkSellOrderBuyingPower(order, orderPrice, availableUSDC, logger);
+    } else {
+      return checkBuyOrderBuyingPower(order, orderPrice, availableUSDC, logger);
     }
+  } catch (error) {
+    logger.error(`[TRADING_BOT] Error checking buying power for ${order.symbol}`, error as Error);
+    return {
+      approved: false,
+      reason: `Error checking buying power: ${(error as Error).message}`,
+      riskLevel: "EXTREME",
+    };
+  }
+};
 
-    // Pour les ordres d'achat, ajuster la taille proportionnellement à l'USDC disponible
-    const maxFundsPercentage = 0.3; // 30% des fonds disponibles maximum
-    const maxOrderValue = availableUSDC * maxFundsPercentage;
+// Sous-fonction pour vérifier le pouvoir d'achat des ordres de vente
+const checkSellOrderBuyingPower = (
+  order: OrderParams,
+  orderPrice: number,
+  availableBalance: number,
+  logger: ReturnType<typeof getLogger>
+): {
+  approved: boolean;
+  adjustedSize?: number;
+  adjustedPrice?: number;
+  reason?: string;
+  riskLevel: RiskLevel;
+} => {
+  if (availableBalance <= 0) {
+    logger.error(
+      `[TRADING_BOT] Cannot sell ${order.symbol}: No ${order.symbol.split("-")[0]} balance available`,
+    );
+    return {
+      approved: false,
+      reason: `Cannot sell ${order.symbol.split("-")[0]}: No balance available`,
+      riskLevel: "EXTREME",
+    };
+  }
+
+  // Make order size proportional to asset balance if it exceeds available amount
+  // Use a maximum of 85% of available balance for any single order (increased from 65%)
+  const maxSellSize = availableBalance * 0.85;
+  let adjustedSize = order.size;
+
+  if (order.size > maxSellSize) {
+    adjustedSize = maxSellSize;
+    logger.info(
+      `[TRADING_BOT] Adjusted sell size for ${order.symbol} from ${order.size} to ${adjustedSize} (85% of available balance)`,
+    );
+    return {
+      approved: true,
+      adjustedSize,
+      reason: `Adjusted sell size to 85% of available balance`,
+      riskLevel: "LOW",
+    };
+  }
+
+  return {
+    approved: true,
+    riskLevel: "LOW",
+  };
+};
+
+// Sous-fonction pour vérifier le pouvoir d'achat des ordres d'achat
+const checkBuyOrderBuyingPower = (
+  order: OrderParams,
+  orderPrice: number,
+  availableUSDC: number,
+  logger: ReturnType<typeof getLogger>
+): {
+  approved: boolean;
+  adjustedSize?: number;
+  adjustedPrice?: number;
+  reason?: string;
+  riskLevel: RiskLevel;
+} => {
+  const orderValue = order.size * orderPrice;
+
+  // For buy orders, make sure we have enough USDC
+  if (availableUSDC <= 0) {
+    logger.error(`[TRADING_BOT] Cannot buy ${order.symbol}: No USDC balance available`);
+    return {
+      approved: false,
+      reason: "Cannot buy: No USDC balance available",
+      riskLevel: "EXTREME",
+    };
+  }
+
+  // We need a smaller buffer for potential price movement - more aggressive
+  const adjustedValue = orderValue * 1.03; // Reduced from 5% to 3% buffer
+  
+  // Check if we have enough buying power with the buffer
+  if (adjustedValue > availableUSDC) {
+    // Calculate how much we can buy with 99% of available USDC - more aggressive
+    const adjustedSize = (availableUSDC * 0.99) / orderPrice;
     
-    // Pour les ordres limites, vérifier que le prix est raisonnable
-    if (order.type === OrderType.LIMIT && order.price) {
-      // Pour les ordres d'achat limite, s'assurer que le prix n'est pas trop élevé
-      if (order.price > currentPrice * 1.01) {
-        logger.warn(`Limit buy price ${order.price} is more than 1% above current price ${currentPrice}. Adjusting.`);
-        const adjustedPrice = Math.round(currentPrice * 1.005 * 100) / 100; // Buy 0.5% above market
-        return {
-          approved: true,
-          adjustedPrice,
-          reason: `Adjusted limit buy price from ${order.price} to ${adjustedPrice} (0.5% above market)`,
-          riskLevel: "MEDIUM"
-        };
-      }
-    }
-    
-    // Si la commande est trop importante, ajuster à une taille proportionnelle
-    if (orderValue > maxOrderValue) {
-      // Calculer la taille proportionnelle
-      const newSize = maxOrderValue / orderPrice;
-      const adjustedSize = Math.floor(newSize * 10000) / 10000; // Arrondir à 4 décimales
-      
-      logger.warn(`Adjusting order size from ${order.size} to ${adjustedSize} to be proportional to buying power`);
-      return { 
-        approved: true, 
-        adjustedSize,
-        reason: `Order size adjusted to be proportional (${(maxFundsPercentage * 100).toFixed(0)}%) to available funds. Using $${(adjustedSize * orderPrice).toFixed(2)} of $${availableUSDC.toFixed(2)} available`,
-        riskLevel: "MEDIUM"
-      };
-    }
-
-    // Si nous n'avons pas assez pour la taille ajustée, réduire davantage
-    if (orderValue > availableUSDC) {
-      // Si nous avons moins de 10% des fonds requis, rejeter la commande
-      if (availableUSDC < orderValue * 0.1) {
-        logger.error(
-          `Insufficient funds to place order. Available: $${availableUSDC.toFixed(2)}, Required: $${orderValue.toFixed(2)}`,
-        );
-        return {
-          approved: false,
-          reason: `Insufficient funds. Available: $${availableUSDC.toFixed(2)}, Required: $${orderValue.toFixed(2)}`,
-          riskLevel: "EXTREME",
-        };
-      }
-
-      // Ajuster la taille pour correspondre aux fonds disponibles (en utilisant 90% des disponibles)
-      const newSize = (availableUSDC * 0.9) / orderPrice;
-      const adjustedSize = Math.floor(newSize * 10000) / 10000; // Arrondir à 4 décimales
-
+    // If the adjusted size is too small (less than 5% of requested), reject
+    if (adjustedSize < order.size * 0.05) {
       logger.warn(
-        `Reducing order size from ${order.size} to ${adjustedSize} due to available balance`,
+        `[TRADING_BOT] Insufficient funds for ${order.symbol}: Requested ${
+          order.size
+        } but can only afford ${adjustedSize.toFixed(6)} (${(
+          (adjustedSize / order.size) *
+          100
+        ).toFixed(2)}%)`,
       );
       return {
-        approved: true,
-        adjustedSize,
-        reason: `Reduced size due to available funds. Using $${(adjustedSize * orderPrice).toFixed(2)} of $${availableUSDC.toFixed(2)} available`,
+        approved: false,
+        reason: `Insufficient funds: Only ${(
+          (adjustedSize / order.size) *
+          100
+        ).toFixed(2)}% of requested size available`,
         riskLevel: "HIGH",
       };
     }
 
-    // Tous les contrôles sont passés, la commande est proportionnelle au pouvoir d'achat
-    return { approved: true, riskLevel: "LOW" };
-  } catch (error) {
-    logger.error("Error checking buying power", error as Error);
+    logger.info(
+      `[TRADING_BOT] Adjusted buy size for ${order.symbol} from ${order.size} to ${adjustedSize.toFixed(6)} (${(
+        (adjustedSize / order.size) *
+        100
+      ).toFixed(2)}% of requested)`,
+    );
     return {
-      approved: false,
-      reason: "Unable to verify account balance",
-      riskLevel: "EXTREME",
+      approved: true,
+      adjustedSize,
+      reason: `Adjusted size due to buying power limitations`,
+      riskLevel: "MEDIUM",
     };
   }
+
+  return {
+    approved: true,
+    riskLevel: "LOW",
+  };
 };
 
 // Helper function to close a position
@@ -244,13 +260,14 @@ const closePosition = async (
     // If position is short, we need to BUY to close it
     const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
     
-    // Create a limit order slightly more aggressive than market to ensure execution
-    // For sell: slightly below current price
-    // For buy: slightly above current price
-    const priceBuffer = 0.001; // 0.1% buffer
+    // Create a limit order significantly more aggressive than market to ensure execution
+    // For sell: more below current price
+    // For buy: more above current price
+    // Using a larger buffer to ensure quick execution when closing positions
+    const priceBuffer = 0.002; // 0.2% buffer (doubled for more aggressive execution)
     const limitPrice = closeSide === OrderSide.SELL 
-      ? marketData.bid * (1 - priceBuffer)  // Sell slightly below bid
-      : marketData.ask * (1 + priceBuffer); // Buy slightly above ask
+      ? marketData.bid * (1 - priceBuffer)  // Sell more below bid
+      : marketData.ask * (1 + priceBuffer); // Buy more above ask
     
     // Create close order
     const closeOrder: OrderParams = {
@@ -594,7 +611,7 @@ export const createTradingBotService = (
 
         const { data } = payload;
         logger.debug(
-          `Processing market data for ${data.symbol}: ${data.price}`,
+          `[TRADING_BOT] Processing market data for ${data.symbol}: ${data.price}`,
         );
 
         // Envoyer les données au gestionnaire de stratégies
@@ -603,6 +620,7 @@ export const createTradingBotService = (
             type: "PROCESS_MARKET_DATA",
             data,
           });
+          logger.debug(`[TRADING_BOT] Market data sent to strategy manager: ${data.symbol}`);
         }
 
         // Envoyer la mise à jour au gestionnaire de risques
@@ -612,10 +630,12 @@ export const createTradingBotService = (
             symbol: data.symbol,
             price: data.price,
           });
+          logger.debug(`[TRADING_BOT] Market update sent to risk manager: ${data.symbol}`);
         }
         
         // Mettre à jour le gestionnaire de prise de profit
         if (state.takeProfitIntegrator && state.positions[data.symbol]) {
+          logger.debug(`[TRADING_BOT] Analyzing take-profit for ${data.symbol} at price ${data.price}`);
           state.takeProfitIntegrator.takeProfitManager.analyzePosition(
             data.symbol,
             data.price
@@ -633,17 +653,29 @@ export const createTradingBotService = (
         }
 
         // Traiter les données à travers toutes les stratégies
+        logger.debug(`[TRADING_BOT] Processing data through strategies for ${data.symbol}`);
         const signals = await state.strategyService.processMarketData(data);
+        logger.debug(`[TRADING_BOT] Received ${signals.size} signals for ${data.symbol}`);
 
         // Gérer les signaux de stratégie pour ce symbole particulier
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
 
           logger.info(
-            `Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`,
+            `[TRADING_BOT] Signal detected from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`,
+            {
+              symbol: data.symbol,
+              strategyId,
+              signalType: signal.type,
+              direction: signal.direction,
+              requestedPrice: signal.price || data.price,
+              currentPrice: data.price,
+              timestamp: new Date().toISOString()
+            }
           );
 
           // Générer un ordre pour la stratégie spécifique qui a produit le signal
+          logger.debug(`[TRADING_BOT] Generating order for ${strategyId} signal on ${data.symbol}`);
           const order = state.strategyService.generateOrder(
             strategyId,
             signal,
@@ -651,6 +683,7 @@ export const createTradingBotService = (
           );
           
           if (order) {
+            logger.info(`[TRADING_BOT] Order generated for ${data.symbol}: ${order.side} ${order.size} @ ${order.price || 'market'}`);
             try {
               // Évaluer le risque de l'ordre avant de le placer
               let adjustedOrder = { ...order };
@@ -677,13 +710,25 @@ export const createTradingBotService = (
                 
                 if (buyingPowerResult.adjustedSize) {
                   logger.warn(
-                    `Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
+                    `[TRADING_BOT] Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
+                    {
+                      symbol: order.symbol,
+                      originalSize: order.size,
+                      adjustedSize: adjustedOrder.size,
+                      adjustmentReason: buyingPowerResult.reason
+                    }
                   );
                 }
                 
                 if (buyingPowerResult.adjustedPrice) {
                   logger.warn(
-                    `Order price adjusted to ${adjustedOrder.price} USD: ${buyingPowerResult.reason}`,
+                    `[TRADING_BOT] Order price adjusted to ${adjustedOrder.price} USD: ${buyingPowerResult.reason}`,
+                    {
+                      symbol: order.symbol,
+                      originalPrice: order.price,
+                      adjustedPrice: adjustedOrder.price,
+                      adjustmentReason: buyingPowerResult.reason
+                    }
                   );
                 }
               } else {
@@ -695,7 +740,13 @@ export const createTradingBotService = (
                 const percentageUsed = (orderValue / availableUSDC) * 100;
 
                 logger.info(
-                  `Order using ${percentageUsed.toFixed(2)}% of available buying power ($${orderValue.toFixed(2)} / $${availableUSDC.toFixed(2)})`,
+                  `[TRADING_BOT] Order using ${percentageUsed.toFixed(2)}% of available buying power ($${orderValue.toFixed(2)} / $${availableUSDC.toFixed(2)})`,
+                  {
+                    symbol: order.symbol,
+                    orderValue: orderValue.toFixed(2),
+                    availableFunds: availableUSDC.toFixed(2),
+                    percentageUsed: percentageUsed.toFixed(2)
+                  }
                 );
               }
 
@@ -706,7 +757,17 @@ export const createTradingBotService = (
                 const priceDiffPercent = (priceDiff / currentPrice) * 100;
                 
                 logger.info(
-                  `Placing LIMIT order at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? 'above' : 'below'} current price of ${currentPrice})`,
+                  `[TRADING_BOT] Placing LIMIT order for ${order.symbol} at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? 'above' : 'below'} current price of ${currentPrice})`,
+                  {
+                    orderType: 'LIMIT',
+                    symbol: order.symbol,
+                    side: adjustedOrder.side,
+                    size: adjustedOrder.size,
+                    limitPrice: adjustedOrder.price,
+                    marketPrice: currentPrice,
+                    priceDiffPercent: priceDiffPercent.toFixed(4),
+                    direction: adjustedOrder.price > currentPrice ? 'above' : 'below'
+                  }
                 );
               }
               
@@ -750,11 +811,24 @@ export const createTradingBotService = (
                 
                 // Suivre la position dans l'état local pour référence future
                 if (signal.type === "entry") {
+                  // Record metrics for the new order
+                  metrics.recordOrderFilled(order.symbol, order.side, adjustedOrder.size, data.price);
+                  
+                  // Save the position in state
                   state.positions[order.symbol] = {
                     symbol: order.symbol,
                     direction: signal.direction === "long" ? "long" : "short",
                     size: adjustedOrder.size,
                   };
+                  
+                  // Track risk exposure with our new risk tracker
+                  riskTracker.updatePositionRisk(
+                    order.symbol,
+                    adjustedOrder.size,
+                    "MEDIUM", // Default to medium for new positions
+                    1.0, // Default leverage
+                    [] // No correlations by default
+                  );
                   
                   // Notifier le gestionnaire de prise de profit
                   if (state.takeProfitIntegrator) {
@@ -771,10 +845,31 @@ export const createTradingBotService = (
                     state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
                   }
                 } else if (signal.type === "exit") {
+                  // Calculate profit if available
+                  if (state.positions[order.symbol]) {
+                    // Calculate estimated profit or loss (simplified)
+                    const position = state.positions[order.symbol];
+                    const profitUSD = position.direction === "long" 
+                      ? (data.price - data.price) * position.size // This would use entry price in reality
+                      : (data.price - data.price) * position.size;
+                      
+                    // Record the exit in metrics with profit/loss
+                    metrics.recordOrderFilled(
+                      order.symbol, 
+                      order.side, 
+                      adjustedOrder.size, 
+                      data.price, 
+                      profitUSD
+                    );
+                  }
+                  
                   // Si on sort de la position, notifier le gestionnaire de prise de profit
                   if (state.takeProfitIntegrator) {
                     state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
                   }
+                  
+                  // Remove position from risk tracker
+                  riskTracker.removePosition(order.symbol);
                   
                   // Supprimer la position de l'état local
                   delete state.positions[order.symbol];
