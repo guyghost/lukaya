@@ -1,0 +1,83 @@
+{
+  "config": {
+    "startDate": "2023-01-01T00:00:00.000Z",
+    "endDate": "2023-12-31T23:59:59.999Z",
+    "highRiskMode": false,
+    "dataOptions": {
+      "dataSource": "csv",
+      "dataPath": "./data",
+      "timeframe": "1h",
+      "interpolateData": false
+    },
+    "tradingOptions": {
+      "initialBalance": 10000,
+      "tradingFees": 0.1,
+      "slippage": 0.05,
+      "maxFundsPerOrder": 0.1,
+      "executionDelay": 0,
+      "rejectionProbability": 0.01
+    },
+    "riskConfig": {
+      "maxRiskPerTrade": 0.01,
+      "maxPositionSize": 5,
+      "maxOpenPositions": 5,
+      "maxDrawdownPercent": 20,
+      "maxLeverage": 1,
+      "stopLossPercent": 2,
+      "takeProfitPercent": 5,
+      "accountSize": 10000,
+      "maxDailyLoss": 500,
+      "diversificationWeight": 0.5,
+      "volatilityAdjustment": true
+    },
+    "takeProfitConfig": {
+      "enabled": true,
+      "trailingMode": true,
+      "cooldownPeriod": 60000,
+      "priceTolerance": 0.1,
+      "minOrderSizePercent": 5,
+      "profitTiers": [
+        {
+          "profitPercentage": 1,
+          "closePercentage": 25
+        },
+        {
+          "profitPercentage": 2,
+          "closePercentage": 25
+        },
+        {
+          "profitPercentage": 5,
+          "closePercentage": 25
+        },
+        {
+          "profitPercentage": 10,
+          "closePercentage": 25
+        }
+      ]
+    },
+    "strategyConfig": {
+      "maxStrategies": 3,
+      "rebalancePeriod": 86400000
+    }
+  },
+  "results": {
+    "initialBalance": 10000,
+    "finalBalance": 10000,
+    "profit": 0,
+    "profitPercentage": 0,
+    "trades": [],
+    "winningTrades": 0,
+    "losingTrades": 0,
+    "winRate": null,
+    "largestWin": 0,
+    "largestLoss": 0,
+    "averageWin": 0,
+    "averageLoss": 0,
+    "profitFactor": 0,
+    "maxDrawdown": 0,
+    "maxDrawdownPercentage": 0,
+    "averageExposure": 0,
+    "strategyPerformance": {}
+  },
+  "report": "=== BACKTEST REPORT ===\n\nPeriod: 2023-01-01T00:00:00.000Z to 2023-12-31T23:59:59.999Z\nInitial Balance: $10000.00\nFinal Balance: $10000.00\nProfit/Loss: $0.00 (0.00%)\n\nTotal Trades: 0\nWinning Trades: 0 (NaN%)\nLosing Trades: 0\nLargest Win: $0.00\nLargest Loss: $0.00\nAverage Win: $0.00\nAverage Loss: $0.00\nProfit Factor: 0.00\n\nMaximum Drawdown: $0.00 (0.00%)\nAverage Exposure: 0.00%\n\n=== TOP PERFORMING TRADES ===\n=== STRATEGY PERFORMANCE ===\n"
+}

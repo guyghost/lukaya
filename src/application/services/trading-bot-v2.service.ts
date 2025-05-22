@@ -306,6 +306,8 @@ export const createTradingBotService = (
     pollInterval: 5000,
     positionAnalysisInterval: 300000, // 5 minutes
     maxFundsPerOrder: 0.3, // Maximum 30% of available funds per order by default
+    debugMode: false, // Mode debug désactivé par défaut
+    forceSignalGeneration: false, // Ne pas forcer la génération de signaux par défaut
     riskConfig: {} as Partial<RiskManagerConfig>,
     strategyConfig: {} as Partial<StrategyManagerConfig>,
     performanceConfig: {} as Partial<PerformanceTrackerConfig>,
@@ -359,11 +361,15 @@ export const createTradingBotService = (
         let strategyManagerActor = state.strategyManagerActor;
         if (!strategyManagerActor) {
           const strategyManagerDefinition =
-            createStrategyManagerActorDefinition(options.strategyConfig);
+            createStrategyManagerActorDefinition({
+              ...options.strategyConfig,
+              debugMode: options.debugMode,
+              forceSignalGeneration: options.forceSignalGeneration
+            });
           strategyManagerActor = actorSystem.createActor(
             strategyManagerDefinition,
           );
-          logger.info("Created strategy manager actor");
+          logger.info(`Created strategy manager actor with debug mode: ${options.debugMode}, force signal generation: ${options.forceSignalGeneration}`);
         }
 
         // Créer le tracker de performance s'il n'existe pas

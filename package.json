@@ -7,15 +7,21 @@
   "scripts": {
     "build": "tsc",
     "dev": "bun run src/main.ts",
-    "start": "bun run dist/main.js"
+    "start": "bun run dist/main.js",
+    "backtest": "bun run src/backtest.ts run",
+    "backtest:optimize": "bun run src/backtest.ts optimize",
+    "backtest:compare": "bun run src/backtest.ts compare"
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "1.21.3",
+    "commander": "^14.0.0",
+    "csv-parse": "^5.6.0",
+    "csv-parser": "^3.2.0",
     "zod": "3.22.4"
   },
   "devDependencies": {
+    "@types/bun": "1.0.6",
     "lodash": "4.17.21",
-    "typescript": "5.8.2",
-    "@types/bun": "1.0.6"
+    "typescript": "5.8.2"
   }
 }

@@ -58,13 +58,22 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
   const name = `Simple Moving Average (${config.shortPeriod}/${config.longPeriod})`;
 
   // Set default values for parameters - version très agressive
-  const maxSlippagePercent = config.maxSlippagePercent || 2.0; // 2.0% par défaut (encore plus augmenté)
-  const minLiquidityRatio = config.minLiquidityRatio || 6.0; // 6x taille de l'ordre par défaut (encore plus réduit pour marchés moins liquides)
-  const riskPerTrade = config.riskPerTrade || 0.03; // 3% du capital par défaut (triplé par rapport à l'original)
-  const stopLossPercent = config.stopLossPercent || 0.04; // 4% par défaut (doublé par rapport à l'original)
-  const defaultAccountSize = config.accountSize || 10000; // 10000 USD par défaut si non spécifié
-  const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.45; // 45% maximum du capital par trade (augmenté encore plus)
-  const limitOrderBuffer = config.limitOrderBuffer || 0.002; // 0.2% buffer par défaut pour les ordres limite (doublé)
+  const maxSlippagePercent = config.maxSlippagePercent || 2.0;
+  const minLiquidityRatio = config.minLiquidityRatio || 6.0;
+  const riskPerTrade = config.riskPerTrade || 0.03;
+  const stopLossPercent = config.stopLossPercent || 0.04;
+  const defaultAccountSize = config.accountSize || 10000;
+  const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.45;
+  const limitOrderBuffer = config.limitOrderBuffer || 0.002;
+
+  // Helper function to normalize symbols for comparison
+  const normalizeSymbol = (symbol: string): string => {
+    // Convert all possible separators (-, _) to a standard format
+    return symbol.replace(/[-_]/g, '').toUpperCase();
+  };
+
+  // Cache the normalized strategy symbol for comparison
+  const normalizedStrategySymbol = normalizeSymbol(config.symbol);
 
   // Helper function to calculate moving average
   const calculateMA = (period: number, offset: number = 0): number => {
@@ -79,7 +88,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
     return sum / period;
   };
 
-  // Helpers pour indicateurs
+  // Helper function to calculate RSI
   const calculateRSI = (period: number): number => {
     if (state.priceHistory.length < period + 1) return 50;
     let gains = 0, losses = 0;
@@ -95,8 +104,11 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
     return 100 - 100 / (1 + rs);
   };
 
+  // Helper function to calculate MACD
   const calculateMACD = (fast: number, slow: number, signal: number): { macd: number, signal: number, hist: number } => {
     if (state.priceHistory.length < slow + signal) return { macd: 0, signal: 0, hist: 0 };
+    
+    // Simple EMA calculation
     const ema = (period: number, offset = 0) => {
       const k = 2 / (period + 1);
       let emaPrev = state.priceHistory[state.priceHistory.length - period - offset];
@@ -105,7 +117,9 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       }
       return emaPrev;
     };
+    
     const macdLine = ema(fast) - ema(slow);
+    
     // Signal line
     let signalLine = macdLine;
     let prevMacd = macdLine;
@@ -113,16 +127,24 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       prevMacd = ema(fast, i) - ema(slow, i);
       signalLine = prevMacd * (2 / (signal + 1)) + signalLine * (1 - 2 / (signal + 1));
     }
+    
     return { macd: macdLine, signal: signalLine, hist: macdLine - signalLine };
   };
 
+  // Helper function to calculate Bollinger Bands
   const calculateBollinger = (period: number, stdDev: number): { upper: number, lower: number, middle: number } => {
     if (state.priceHistory.length < period) return { upper: 0, lower: 0, middle: 0 };
+    
     const prices = state.priceHistory.slice(-period);
     const mean = prices.reduce((a, b) => a + b, 0) / period;
     const variance = prices.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
     const std = Math.sqrt(variance);
-    return { upper: mean + stdDev * std, lower: mean - stdDev * std, middle: mean };
+    
+    return { 
+      upper: mean + stdDev * std, 
+      lower: mean - stdDev * std, 
+      middle: mean 
+    };
   };
 
   // Return the strategy implementation
@@ -143,19 +165,42 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
     processMarketData: async (
       data: MarketData,
     ): Promise<StrategySignal | null> => {
-      if (data.symbol !== config.symbol) return null;
+      // Normalize symbols for comparison
+      const configSymbolNorm = normalizeSymbol(config.symbol);
+      const dataSymbolNorm = normalizeSymbol(data.symbol);
+      
+      console.log(`[${data.symbol}] Comparing symbols: Strategy symbol="${config.symbol}" (norm: ${configSymbolNorm}), Data symbol="${data.symbol}" (norm: ${dataSymbolNorm})`);
+      
+      if (configSymbolNorm !== dataSymbolNorm) {
+        console.log(`[${data.symbol}] Symbol mismatch, skipping`);
+        return null;
+      }
+      
+      console.log(`[${data.symbol}] Processing market data at ${new Date(data.timestamp).toISOString()}, price: ${data.price}`);
+      
+      // Add current price to history
       state.priceHistory.push(data.price);
+      
+      // Calculate required length for all indicators
       const requiredLength = Math.max(
         config.shortPeriod,
         config.longPeriod,
         config.rsiPeriod || 14,
         config.macdSlowPeriod || 26,
         config.bollingerPeriod || 20
-      );
-      if (state.priceHistory.length > requiredLength) {
-        state.priceHistory = state.priceHistory.slice(-requiredLength);
+      ) + 5; // Add buffer for calculations
+      
+      // Trim history if needed but keep enough data
+      if (state.priceHistory.length > requiredLength * 2) {
+        state.priceHistory = state.priceHistory.slice(-requiredLength * 2);
       }
-      if (state.priceHistory.length < requiredLength) return null;
+      
+      // If we don't have enough data yet, wait - mais ne nécessite que 80% des données
+      const minimumRequiredData = Math.floor(requiredLength * 0.8); // Réduit à 80% pour être plus réactif
+      if (state.priceHistory.length < minimumRequiredData) {
+        console.log(`[${data.symbol}] Building price history: ${state.priceHistory.length}/${minimumRequiredData} (min) / ${requiredLength} (optimal)`);
+        return null;
+      }
       // MA
       const shortMA = calculateMA(config.shortPeriod);
       const longMA = calculateMA(config.longPeriod);
@@ -183,27 +228,110 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
           config.bollingerStdDev || 2
         );
       }
-      // LOGS
-      console.log(`[${data.symbol}] MA: short=${shortMA.toFixed(2)}, long=${longMA.toFixed(2)} | RSI: ${rsi.toFixed(2)} | MACD: ${macd.macd.toFixed(2)}, signal=${macd.signal.toFixed(2)}, hist=${macd.hist.toFixed(2)} | Boll: upper=${boll.upper.toFixed(2)}, lower=${boll.lower.toFixed(2)}, price=${data.price}`);
-      // Logique de signal combinée
-      let entryLong = shortMA > longMA && prevShortMA <= prevLongMA;
-      let entryShort = shortMA < longMA && prevShortMA >= prevLongMA;
+      // LOGS with more details
+      console.log(`[${data.symbol}] Price=${data.price.toFixed(2)} | MA: short=${shortMA.toFixed(2)}, long=${longMA.toFixed(2)} | RSI: ${rsi.toFixed(2)} | MACD: ${macd.macd.toFixed(2)}, signal=${macd.signal.toFixed(2)}, hist=${macd.hist.toFixed(2)} | Boll: upper=${boll.upper.toFixed(2)}, lower=${boll.lower.toFixed(2)}`);
+      console.log(`[${data.symbol}] History length=${state.priceHistory.length}, required=${requiredLength}, price history sample=${state.priceHistory.slice(-5).map(p => p.toFixed(2)).join(', ')}...`);
+      
+      // Log conditions - version plus sensible avec critères de croisement élargis
+      // Détection de croisement standard
+      const standardCrossoverLong = shortMA > longMA && prevShortMA <= prevLongMA;
+      const standardCrossoverShort = shortMA < longMA && prevShortMA >= prevLongMA;
+      
+      // Détection de croisement proche (presque croisement) - beaucoup plus permissif (0,5% au lieu de 0,3%)
+      const closeCrossoverLong = Math.abs(shortMA - longMA) / longMA < 0.005 && shortMA > prevShortMA && longMA < prevLongMA;
+      const closeCrossoverShort = Math.abs(shortMA - longMA) / longMA < 0.005 && shortMA < prevShortMA && longMA > prevLongMA;
+      
+      // Confirmation de tendance (pas un croisement, mais un écart croissant) - plus sensible (0,1% au lieu de 0,2%)
+      const trendConfirmationLong = shortMA > longMA && (shortMA - longMA) > (prevShortMA - prevLongMA) && (shortMA - longMA) / longMA > 0.001;
+      const trendConfirmationShort = shortMA < longMA && (longMA - shortMA) > (prevLongMA - prevShortMA) && (longMA - shortMA) / longMA > 0.001;
+      
+      // Condition ultra-sensible pour le cas où les MAs sont presque parallèles
+      const ultraSensitiveLong = Math.abs(shortMA - longMA) / longMA < 0.008 && shortMA > prevShortMA && shortMA > longMA;
+      const ultraSensitiveShort = Math.abs(shortMA - longMA) / longMA < 0.008 && shortMA < prevShortMA && shortMA < longMA;
+      
+      // Combinaison des conditions pour plus de sensibilité
+      const crossoverLong = standardCrossoverLong || closeCrossoverLong || trendConfirmationLong || ultraSensitiveLong;
+      const crossoverShort = standardCrossoverShort || closeCrossoverShort || trendConfirmationShort || ultraSensitiveShort;
+      
+      console.log(`[${data.symbol}] Crossover conditions: Long=${crossoverLong} (std=${standardCrossoverLong}, near=${closeCrossoverLong}, trend=${trendConfirmationLong}), Short=${crossoverShort} (std=${standardCrossoverShort}, near=${closeCrossoverShort}, trend=${trendConfirmationShort})`);
+      
       if (config.useRSI) {
-        entryLong = entryLong && rsi < (config.rsiOversold || 40); // Plus agressif: 40 au lieu de 30
-        entryShort = entryShort && rsi > (config.rsiOverbought || 60); // Plus agressif: 60 au lieu de 70
+        console.log(`[${data.symbol}] RSI conditions: ${rsi} < ${config.rsiOversold || 40} (for long), ${rsi} > ${config.rsiOverbought || 60} (for short)`);
       }
       if (config.useMACD) {
-        // Plus agressif: vérifier seulement la direction, pas besoin que l'histogramme soit positif
-        entryLong = entryLong && macd.macd > macd.signal; 
-        entryShort = entryShort && macd.macd < macd.signal;
+        console.log(`[${data.symbol}] MACD conditions: ${macd.macd} > ${macd.signal} (for long), ${macd.macd} < ${macd.signal} (for short)`);
       }
       if (config.useBollinger) {
-        // Plus agressif: permettre les entrées quand le prix est proche des bandes
         const bollingerBuffer = 0.003; // 0.3% buffer
+        console.log(`[${data.symbol}] Bollinger conditions: ${data.price} < ${boll.lower * (1 + bollingerBuffer)} (for long), ${data.price} > ${boll.upper * (1 - bollingerBuffer)} (for short)`);
+      }
+      
+      // Combined signal logic
+      let entryLong = crossoverLong;
+      let entryShort = crossoverShort;
+      
+      // Évaluation des indicateurs techniques - optionnels et beaucoup plus permissifs
+      // Si la condition de croisement est déjà forte, on peut ignorer certaines conditions des indicateurs
+      const strongSignal = standardCrossoverLong || standardCrossoverShort;
+      
+      if (config.useRSI) {
+        // Ultra-permissif sur le RSI - on l'utilise juste comme guide supplémentaire
+        const rsiLongCondition = rsi < (config.rsiOversold || 49); // Presque neutre (49 au lieu de 30)
+        const rsiShortCondition = rsi > (config.rsiOverbought || 51); // Presque neutre (51 au lieu de 70)
+        
+        // Si le signal de croisement est fort, on peut être plus permissif sur le RSI
+        if (strongSignal) {
+          entryLong = entryLong && (rsiLongCondition || rsi < 65); // Très permissif pour les signaux forts
+          entryShort = entryShort && (rsiShortCondition || rsi > 35); // Très permissif pour les signaux forts
+        } else {
+          entryLong = entryLong && rsiLongCondition;
+          entryShort = entryShort && rsiShortCondition;
+        }
+      }
+      
+      if (config.useMACD) {
+        // Ultra-permissif sur le MACD - on regarde juste les tendances générales
+        const macdTrendUp = macd.macd >= macd.macd - 0.0005 || macd.hist > -0.0001;
+        const macdTrendDown = macd.macd <= macd.macd + 0.0005 || macd.hist < 0.0001;
+        
+        // Si le signal de croisement est fort, le MACD devient presque facultatif
+        if (strongSignal) {
+          entryLong = entryLong && (macd.macd > macd.signal - 0.0008 || macdTrendUp);
+          entryShort = entryShort && (macd.macd < macd.signal + 0.0008 || macdTrendDown);
+        } else {
+          entryLong = entryLong && macdTrendUp;
+          entryShort = entryShort && macdTrendDown;
+        }
+      }
+      
+      if (config.useBollinger) {
+        // Conditions Bollinger extrêmement permissives - presque juste informatives
+        const bollingerBuffer = 0.015; // 1.5% buffer (extrêmement large)
         entryLong = entryLong && data.price < (boll.lower * (1 + bollingerBuffer));
         entryShort = entryShort && data.price > (boll.upper * (1 - bollingerBuffer));
       }
-      if (entryLong) {
+
+      console.log(`[${data.symbol}] Final signal conditions: entryLong=${entryLong}, entryShort=${entryShort}, currentPosition=${state.position}`);
+      
+      // Logique de trading plus agressive avec gestion de position améliorée
+      const marketTrend = shortMA > longMA ? "bullish" : "bearish";
+      console.log(`[${data.symbol}] Market trend: ${marketTrend}, Position: ${state.position}`);
+      
+      // Forcer une sortie si le prix a trop bougé contre nous - Aligné avec notre stop loss à 3% pour la règle 3-5-7
+      if (state.position === "long" && state.lastEntryPrice && data.price < state.lastEntryPrice * 0.97) {
+        state.position = "none";
+        state.lastEntryPrice = null;
+        console.log(`[${data.symbol}] FORCE EXIT long (price dropped 3%+)`);
+        return { type: "exit", direction: "long", price: data.price, reason: "Stop loss 3% (règle 3-5-7)" };
+      } else if (state.position === "short" && state.lastEntryPrice && data.price > state.lastEntryPrice * 1.03) {
+        state.position = "none";
+        state.lastEntryPrice = null;
+        console.log(`[${data.symbol}] FORCE EXIT short (price rose 3%+)`);
+        return { type: "exit", direction: "short", price: data.price, reason: "Stop loss 3% (règle 3-5-7)" };
+      }
+      
+      // Logique d'entrée et sortie principale
+      if (entryLong || (marketTrend === "bullish" && rsi < 35)) { // Condition supplémentaire basée sur RSI
         if (state.position === "short") {
           state.position = "none";
           state.lastEntryPrice = null;
@@ -215,7 +343,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
           console.log(`[${data.symbol}] Signal ENTRY long (combiné)`);
           return { type: "entry", direction: "long", price: data.price, reason: "Signal long combiné" };
         }
-      } else if (entryShort) {
+      } else if (entryShort || (marketTrend === "bearish" && rsi > 65)) { // Condition supplémentaire basée sur RSI
         if (state.position === "long") {
           state.position = "none";
           state.lastEntryPrice = null;
@@ -228,6 +356,19 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
           return { type: "entry", direction: "short", price: data.price, reason: "Signal short combiné" };
         }
       }
+      
+      // Logique de sortie adaptée à la règle 3-5-7 avec première sortie à 3%
+      if (state.position === "long" && state.lastEntryPrice && data.price > state.lastEntryPrice * 1.03) {
+        state.position = "none";
+        state.lastEntryPrice = null;
+        console.log(`[${data.symbol}] PROFIT EXIT long (price +3% - Règle 3-5-7)`);
+        return { type: "exit", direction: "long", price: data.price, reason: "Prise de profit règle 3-5-7 (3%)" };
+      } else if (state.position === "short" && state.lastEntryPrice && data.price < state.lastEntryPrice * 0.97) {
+        state.position = "none";
+        state.lastEntryPrice = null;
+        console.log(`[${data.symbol}] PROFIT EXIT short (price -3% - Règle 3-5-7)`);
+        return { type: "exit", direction: "short", price: data.price, reason: "Prise de profit règle 3-5-7 (3%)" };
+      }
       return null;
     },
 
@@ -235,7 +376,10 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       signal: StrategySignal,
       marketData: MarketData,
     ): OrderParams | null => {
-      if (marketData.symbol !== config.symbol) return null;
+      // Use normalized symbol comparison for better compatibility
+      if (normalizeSymbol(marketData.symbol) !== normalizeSymbol(config.symbol)) {
+        return null;
+      }
 
       // Déterminer le côté de l'ordre
       const orderSide =
@@ -258,30 +402,75 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       if (signal.type === "entry") {
         // Pour les ordres d'entrée, calculer la taille en fonction du risque et du stop loss
         // Montant à risquer = taille du compte * pourcentage de risque par trade
-        const riskAmount = currentAccountSize * riskPerTrade;
-
+        const reason = signal.reason || "";
+        
+        // Augmenter le risque si le signal est particulièrement fort
+        let confidenceMultiplier = 1.0;
+        if (reason.includes("combiné")) {
+          confidenceMultiplier = 1.2; // Augmenter le risque de 20% pour les signaux combinés
+        }
+        
+        // Ajuster le multiplicateur en fonction de la volatilité récente
+        // (estimation simple basée sur le spread bid-ask et les niveaux de prix)
+        const volatilityIndicator = (marketData.ask - marketData.bid) / marketData.price;
+        if (volatilityIndicator < 0.001) { // Faible volatilité
+          confidenceMultiplier *= 1.3; // Encore plus de confiance quand le marché est calme
+        } else if (volatilityIndicator > 0.005) { // Forte volatilité
+          confidenceMultiplier *= 0.7; // Réduire l'exposition en période volatile
+        }
+        
+        const riskAmount = currentAccountSize * riskPerTrade * confidenceMultiplier;
+        
+        // Calcul du stop loss dynamique basé sur la volatilité récente (au minimum 3%)
         // Distance jusqu'au stop loss (en USD)
-        // Pour un ordre long: prix d'entrée - prix du stop loss
-        // Pour un ordre short: prix du stop loss - prix d'entrée
         const entryPrice = marketData.price;
-        const stopLossDistance = entryPrice * stopLossPercent;
-
+        const dynamicStopLossPercent = Math.max(stopLossPercent, volatilityIndicator * 10);
+        const stopLossDistance = entryPrice * dynamicStopLossPercent;
+        
+        console.log(`[${marketData.symbol}] Order sizing: confidence=${confidenceMultiplier.toFixed(2)}, volatility=${volatilityIndicator.toFixed(4)}, stopLoss=${dynamicStopLossPercent.toFixed(4)}, riskAmount=${riskAmount.toFixed(2)}`);
+        
         // Taille de la position = montant à risquer / distance jusqu'au stop loss
         positionSize = stopLossDistance > 0 ? riskAmount / stopLossDistance : 0;
 
-        // S'assurer que la taille est proportionnelle au buying power - version agressive
-        // Utiliser maxCapitalPerTrade (45% par défaut) au lieu de hardcoder 25%
+        // S'assurer que la taille est proportionnelle au buying power - version encore plus dynamique
         const maxPositionValue = currentAccountSize * maxCapitalPerTrade;
         const calculatedPositionValue = positionSize * entryPrice;
-
-        // Version plus agressive - si le calcul basé sur le risque génère une position plus grande,
-        // on l'autorise jusqu'à 25% plus grande que la limite du capital par trade
-        if (calculatedPositionValue > maxPositionValue * 1.25) {
-          positionSize = (maxPositionValue * 1.25) / entryPrice;
+        
+        // Implémenter une augmentation progressive de la taille des ordres en fonction de la confiance
+        // On utilise un système de paliers dynamiques
+        let sizeMultiplier = 1.0;
+        
+        // Si le signal est basé sur un croisement complet des moyennes mobiles, on augmente la confiance
+        if (signal.reason && signal.reason.includes("combiné")) {
+          sizeMultiplier *= 1.15;
         }
+        
+        // Si on commence à avoir un petit historique de performance positive, on augmente progressivement
+        if (state.accountSize && state.accountSize > defaultAccountSize) {
+          const performanceRatio = state.accountSize / defaultAccountSize;
+          // Augmenter la taille de 2% pour chaque 1% de performance au-dessus de 100%
+          sizeMultiplier *= Math.min(1.5, 1 + ((performanceRatio - 1) * 2));
+        }
+        
+        // Bornes de sécurité: jamais plus de 40% au-dessus de la limite max de capital par trade
+        const adjustedMaxPositionValue = maxPositionValue * Math.min(1.4, sizeMultiplier);
+        
+        if (calculatedPositionValue > adjustedMaxPositionValue) {
+          positionSize = adjustedMaxPositionValue / entryPrice;
+        }
+        
+        // Garantir une taille minimum pour éviter les positions trop petites
+        const minPositionValue = currentAccountSize * 0.025; // Minimum 2.5% du capital
+        if (positionSize * entryPrice < minPositionValue) {
+          positionSize = minPositionValue / entryPrice;
+        }
+        
+        console.log(`[${marketData.symbol}] Position sizing: raw=${(calculatedPositionValue).toFixed(2)}, adjusted=${(positionSize * entryPrice).toFixed(2)}, multiplier=${sizeMultiplier.toFixed(2)}`);
       } else {
-        // Pour les ordres de sortie, utiliser la même taille que l'entrée
-        positionSize = config.positionSize;
+        // Pour les ordres de sortie, utiliser la même taille que l'entrée ou légèrement plus agressive
+        // selon le contexte (sortie en profit vs sortie en perte)
+        const isProfit = signal.reason && (signal.reason.includes("profit") || signal.reason.includes("+"));
+        positionSize = config.positionSize * (isProfit ? 1.0 : 1.05); // 5% plus grand pour les sorties en perte
       }
 
       // Vérifier que la taille n'est pas nulle ou invalide
@@ -333,13 +522,15 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
       // Pour les ordres d'entrée - version agressive avec ordre limite plus agressif
       // Utiliser des ordres limite avec un buffer agressif pour garantir l'exécution mais obtenir un meilleur prix
       const orderParams: OrderParams = {
-        symbol: config.symbol,
+        symbol: marketData.symbol, // Utiliser le symbol des données de marché pour éviter les problèmes de format
         side: orderSide,
         type: OrderType.LIMIT, // Utiliser LIMIT au lieu de MARKET pour de meilleurs prix potentiels
         size: adjustedSize,
         price: limitPrice,
         timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL // Exécuter immédiatement ou annuler
       };
+      
+      console.log(`[${marketData.symbol}] Generated order: ${orderSide} ${adjustedSize} @ ${limitPrice} (type: ${OrderType.LIMIT})`);
 
       return orderParams;
     },

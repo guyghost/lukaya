@@ -25,7 +25,9 @@ export const createStrategyManagerActorDefinition = (
     backtestPeriod: 30 * 24 * 60 * 60 * 1000, // 30 days
     optimizationEnabled: true,
     rotationEnabled: true,
-    conflictResolutionMode: 'performance_weighted'
+    conflictResolutionMode: 'performance_weighted',
+    debugMode: false,
+    forceSignalGeneration: false
   };
   
   // Merge provided config with defaults
@@ -335,7 +337,39 @@ export const createStrategyManagerActorDefinition = (
         const processResults = await Promise.all(
           relevantStrategies.map(async entry => {
             try {
-              const signal = await entry.strategy.processMarketData(data);
+              // Appliquer le traitement normal de données de marché
+              let signal = await entry.strategy.processMarketData(data);
+              
+              // Si forceSignalGeneration est actif et qu'aucun signal n'est généré, on peut être plus agressif
+              if (!signal && mergedConfig.forceSignalGeneration) {
+                if (mergedConfig.debugMode) {
+                  logger.debug(`[ForceSignal] Trying to force signal generation for ${entry.strategy.getId()} on ${data.symbol}`);
+                  
+                  // On vérifie la tendance récente pour générer un signal plus agressif
+                  const lastData = [];
+                  for (const symbol in state.marketDataCache) {
+                    if (symbol === data.symbol) {
+                      lastData.push(state.marketDataCache[symbol]);
+                    }
+                  }
+                  
+                  if (lastData.length > 0) {
+                    // On ne génère un signal forcé que 10% du temps pour éviter une sur-activité
+                    if (Math.random() < 0.1) {
+                      const recentTrend = data.price > lastData[0].price;
+                      logger.debug(`[ForceSignal] Generated speculative signal for ${entry.strategy.getId()}`);
+                      
+                      signal = {
+                        type: recentTrend ? "entry" : "exit",
+                        direction: recentTrend ? "long" : "short",
+                        price: data.price,
+                        reason: "Forced signal generation based on recent trend"
+                      };
+                    }
+                  }
+                }
+              }
+              
               return { 
                 strategyId: entry.strategy.getId(), 
                 signal 

@@ -1,0 +1,49 @@
+{
+  "startDate": "2023-01-01T00:00:00.000Z",
+  "endDate": "2023-12-31T23:59:59.999Z",
+  "highRiskMode": false,
+  "dataOptions": {
+    "dataSource": "csv",
+    "dataPath": "./data",
+    "timeframe": "1h",
+    "interpolateData": false
+  },
+  "tradingOptions": {
+    "initialBalance": 10000,
+    "tradingFees": 0.1,
+    "slippage": 0.05,
+    "maxFundsPerOrder": 0.1,
+    "executionDelay": 0,
+    "rejectionProbability": 0.01
+  },
+  "riskConfig": {
+    "maxRiskPerTrade": 0.01,
+    "maxPositionSize": 5,
+    "maxOpenPositions": 5,
+    "maxDrawdownPercent": 20.0,
+    "maxLeverage": 1.0,
+    "stopLossPercent": 2.0,
+    "takeProfitPercent": 5.0,
+    "accountSize": 10000,
+    "maxDailyLoss": 500,
+    "diversificationWeight": 0.5,
+    "volatilityAdjustment": true
+  },
+  "takeProfitConfig": {
+    "enabled": true,
+    "trailingMode": true,
+    "cooldownPeriod": 60000,
+    "priceTolerance": 0.1,
+    "minOrderSizePercent": 5.0,
+    "profitTiers": [
+      { "profitPercentage": 1.0, "closePercentage": 25 },
+      { "profitPercentage": 2.0, "closePercentage": 25 },
+      { "profitPercentage": 5.0, "closePercentage": 25 },
+      { "profitPercentage": 10.0, "closePercentage": 25 }
+    ]
+  },
+  "strategyConfig": {
+    "maxStrategies": 3,
+    "rebalancePeriod": 86400000
+  }
+}

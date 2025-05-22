@@ -1,0 +1,7 @@
+{
+  "startDate": "2023-01-01",
+  "endDate": "2023-01-15",
+  "dataDir": "/Users/guy/Developer/vibes/lukaya/data",
+  "symbols": ["BTC_USD", "ETH_USD"],
+  "initialBalance": 10000
+}

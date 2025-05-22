@@ -36,6 +36,8 @@ export interface StrategyManagerConfig {
   optimizationEnabled: boolean;
   rotationEnabled: boolean;
   conflictResolutionMode: 'performance_weighted' | 'risk_adjusted' | 'consensus';
+  debugMode?: boolean; // Active le mode debug
+  forceSignalGeneration?: boolean; // Force la génération de signaux plus fréquemment
 }
 
 export type StrategyManagerMessage =
