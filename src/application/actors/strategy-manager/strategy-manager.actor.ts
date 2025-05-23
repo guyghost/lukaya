@@ -118,14 +118,14 @@ export const createStrategyManagerActorDefinition = (
     const symbolSignals: Record<string, Array<{strategyId: string, signal: StrategySignal, weight: number}>> = {};
     
     // Group signals by symbol
-    for (const [strategyId, signal] of signals.entries()) {
-      if (!signal) continue;
+    signals.forEach((signal, strategyId) => {
+      if (!signal) return;
       
       const strategy = strategies[strategyId];
-      if (!strategy || strategy.status !== 'active') continue;
+      if (!strategy || strategy.status !== 'active') return;
       
       const symbol = (strategy.config.parameters as any).symbol || '';
-      if (!symbol) continue;
+      if (!symbol) return;
       
       if (!symbolSignals[symbol]) {
         symbolSignals[symbol] = [];
@@ -136,7 +136,7 @@ export const createStrategyManagerActorDefinition = (
         signal,
         weight: strategy.weight
       });
-    }
+    });
     
     // Process each symbol for conflicts
     const resolvedSignals = new Map<string, StrategySignal | null>();

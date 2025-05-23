@@ -19,6 +19,30 @@ const mockTradingPort = {
       ...orderParams,
       status: 'FILLED'
     };
+  },
+  cancelOrder: async (orderId: string) => {
+    console.log(`[ANNULATION SIMULÉE] Ordre ${orderId} annulé`);
+    return true;
+  },
+  getOrder: async (orderId: string) => {
+    return {
+      id: orderId,
+      symbol: 'BTC-USD',
+      side: OrderSide.SELL,
+      type: OrderType.MARKET,
+      size: 0.1,
+      status: 'FILLED'
+    };
+  },
+  getOpenOrders: async () => {
+    return [];
+  },
+  getAccountBalance: async () => {
+    return {
+      totalEquity: 100000,
+      freeCollateral: 50000,
+      openPositions: []
+    };
   }
 };
 

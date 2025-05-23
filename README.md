@@ -35,48 +35,72 @@ Le bot appliquera automatiquement les stratégies configurées à tous les symbo
 
 ### Configuration des stratégies
 
-Paramètres pour la stratégie de moyennes mobiles:
+Le bot utilise maintenant quatre stratégies avancées de détection des signaux faibles :
+
+1. **RSI Divergence** : Détecte les divergences entre prix et RSI pour anticiper les retournements
+2. **Volume Analysis** : Analyse les patterns de volume pour identifier les accumulations/distributions  
+3. **Elliott Wave** : Identifie les structures de vagues pour prédire les mouvements
+4. **Harmonic Pattern** : Reconnaît les patterns harmoniques basés sur Fibonacci
+
+Configuration globale des paramètres de trading :
 
 ```
-MA_SHORT_PERIOD=10
-MA_LONG_PERIOD=30
-DEFAULT_POSITION_SIZE=0.01
-MAX_SLIPPAGE_PERCENT=1.0   # Pourcentage maximal de slippage accepté
-MIN_LIQUIDITY_RATIO=10.0   # Ratio minimum de liquidité par rapport à la taille de l'ordre
+DEFAULT_POSITION_SIZE=0.015
 RISK_PER_TRADE=0.01        # Pourcentage du capital à risquer par trade (1%)
 STOP_LOSS_PERCENT=0.02     # Pourcentage de stop loss (2%)
 DEFAULT_ACCOUNT_SIZE=10000 # Taille du compte en USD pour le calcul du risque
 MAX_CAPITAL_PER_TRADE=0.25 # Pourcentage maximum du capital par trade (25%)
 MAX_FUNDS_PER_ORDER=0.25   # Pourcentage maximum des fonds disponibles par ordre (25%)
-USE_LIMIT_ORDERS=false      # Utiliser des ordres au marché par défaut (true pour ordres limite)
+MAX_SLIPPAGE_PERCENT=1.5   # Pourcentage maximal de slippage accepté
+MIN_LIQUIDITY_RATIO=6.0    # Ratio minimum de liquidité par rapport à la taille de l'ordre
+USE_LIMIT_ORDERS=true      # Utiliser des ordres limite par défaut
 LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%)
 ```
 
 ### Autres paramètres
 
 ```
-POLL_INTERVAL=5000 # Intervalle de mise à jour des données de marché (ms)
-MAX_LEVERAGE=2 # Effet de levier maximum
-POSITION_ANALYSIS_INTERVAL=300000 # Intervalle d'analyse des positions (5 minutes)
+POLL_INTERVAL=3000 # Intervalle de mise à jour des données de marché (ms)
+MAX_LEVERAGE=2.5 # Effet de levier maximum
+POSITION_ANALYSIS_INTERVAL=180000 # Intervalle d'analyse des positions (3 minutes)
 LOG_LEVEL="info" # Niveau de log (debug, info, warn, error)
 LOG_TO_FILE="true" # Activer les logs dans un fichier
 LOG_FILE_PATH="./logs/lukaya.log" # Chemin du fichier de logs
 ```
 
-### Paramètres des ordres
+### Gestion des ordres
 
-```
-USE_LIMIT_ORDERS=false     # Désactivé par défaut (utiliser des ordres au marché)
-LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%) si activés
-```
-
-Par défaut, le bot utilise des ordres au marché pour une exécution immédiate.
-
-Quand `USE_LIMIT_ORDERS` est activé (=true):
+Le bot utilise des ordres limite par défaut pour optimiser l'exécution :
 - Les ordres d'achat sont placés légèrement au-dessus du prix bid
 - Les ordres de vente sont placés légèrement en-dessous du prix ask
 - Le buffer détermine la distance entre le prix du marché et le prix limite
 - Les ordres sont définis comme "postOnly" pour garantir l'ajout de liquidité
+
+## Stratégies avancées de détection des signaux faibles
+
+### RSI Divergence Strategy
+Détecte les divergences entre le prix et l'indicateur RSI pour anticiper les retournements de marché.
+- Analyse les divergences haussières et baissières
+- Filtrage par niveaux de surachat/survente
+- Confirmation par analyse de tendance
+
+### Volume Analysis Strategy  
+Monitore les patterns de volume pour identifier les signaux d'accumulation/distribution.
+- Détection des pics de volume
+- Analyse des moyennes mobiles de volume
+- Corrélation volume/prix pour validation des signaux
+
+### Elliott Wave Strategy
+Identifie les structures de vagues d'Elliott pour prédire les mouvements de marché.
+- Détection des vagues impulsives et correctives
+- Analyse des ratios de Fibonacci
+- Validation par momentum et volume
+
+### Harmonic Pattern Strategy
+Reconnaît les patterns harmoniques basés sur les ratios de Fibonacci.
+- Détection des patterns Gartley, Butterfly, Bat
+- Validation par confluence des niveaux
+- Signaux haute probabilité aux zones de retournement
 
 ## Lancement
 
@@ -98,31 +122,6 @@ Le bot de trading:
 8. Ferme automatiquement les positions qui ne sont plus viables
 9. Place des ordres au marché pour une exécution immédiate (ou des ordres limite si configuré)
 10. Suit l'état des ordres et gère les remplissages partiels
-
-## Stratégies disponibles
-
-### Simple Moving Average (SMA)
-
-Stratégie basée sur le croisement de deux moyennes mobiles:
-- Une période courte (par défaut: 10)
-- Une période longue (par défaut: 30)
-
-Signaux:
-- Achat: lorsque la moyenne courte croise au-dessus de la moyenne longue
-- Vente: lorsque la moyenne courte croise en-dessous de la moyenne longue
-
-Gestion du risque et de la liquidité:
-- Pour chaque signal d'entrée, le bot calcule la taille de position optimale:
-  - Montant à risquer = Taille du compte × RISK_PER_TRADE
-  - Distance au stop loss = Prix d'entrée × STOP_LOSS_PERCENT
-  - Taille de position = Montant à risquer / Distance au stop loss
-  - Limitation à MAX_CAPITAL_PER_TRADE du capital total
-  - Limitation à MAX_FUNDS_PER_ORDER des fonds disponibles
-- Le bot vérifie le slippage actuel du marché et le compare avec MAX_SLIPPAGE_PERCENT
-- Il évalue la liquidité disponible par rapport à MIN_LIQUIDITY_RATIO
-- Si la liquidité est insuffisante, la taille de l'ordre est réduite
-- Si la liquidité est trop faible (moins de 10% de la taille calculée), l'ordre n'est pas exécuté
-- Utilisation d'ordres au marché par défaut avec option configurable pour les ordres limite
 
 ## Gestion automatique des prises de profit (Règle 3-5-7)
 
@@ -148,6 +147,14 @@ TAKE_PROFIT_RULE_ENABLED=true
 TAKE_PROFIT_LEVEL_1=3       # Premier niveau de profit (%)
 TAKE_PROFIT_SIZE_1=30       # Pourcentage de la position à fermer au premier niveau
 TAKE_PROFIT_LEVEL_2=5       # Deuxième niveau de profit (%)
+TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
+TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
+TAKE_PROFIT_SIZE_3=100      # Fermeture complète au troisième niveau
+TAKE_PROFIT_TRAILING=false  # Désactiver le trailing stop par défaut
+TAKE_PROFIT_COOLDOWN=300000 # Délai entre les prises de profit (ms)
+```
+
+## Lancement
 TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
 TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
 TAKE_PROFIT_SIZE_3=100      # Pourcentage de la position à fermer au troisième niveau

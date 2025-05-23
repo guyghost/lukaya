@@ -9,6 +9,27 @@ import { MarketData } from "../domain/models/market.model";
 
 // Configure le logger
 initializeLogger({
+  network: "testnet",
+  dydx: {
+    defaultSubaccountNumber: 0
+  },
+  trading: {
+    defaultSymbols: ["BTC-USD"],
+    defaultPositionSize: 0.015,
+    maxLeverage: 2.5,
+    pollInterval: 3000,
+    maxSlippagePercent: 1.5,
+    minLiquidityRatio: 6.0,
+    riskPerTrade: 0.01,
+    stopLossPercent: 0.02,
+    defaultAccountSize: 10000,
+    maxCapitalPerTrade: 0.25,
+    maxFundsPerOrder: 0.25,
+    positionAnalysisInterval: 180000,
+    limitOrderBuffer: 0.0005,
+    useLimitOrders: true
+  },
+  strategies: [],
   logging: {
     level: "info",
     fileOutput: false

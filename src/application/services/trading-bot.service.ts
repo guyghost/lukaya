@@ -459,9 +459,9 @@ export const createTradingBotService = (
         }
 
         // Start all existing market actors if they exist
-        for (const [symbol, actorAddress] of state.marketActors.entries()) {
+        state.marketActors.forEach((actorAddress, symbol) => {
           actorSystem.send(actorAddress, { type: "SUBSCRIBE", symbol });
-        }
+        });
 
         return {
           state: {
