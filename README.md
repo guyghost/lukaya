@@ -124,6 +124,52 @@ Gestion du risque et de la liquidité:
 - Si la liquidité est trop faible (moins de 10% de la taille calculée), l'ordre n'est pas exécuté
 - Utilisation d'ordres au marché par défaut avec option configurable pour les ordres limite
 
+## Gestion automatique des prises de profit (Règle 3-5-7)
+
+Le bot implémente la règle 3-5-7 pour gérer les prises de profit de manière structurée et disciplinée:
+
+1. **Premier palier (3%)**: Fermeture de 30% de la position lorsque le profit atteint 3%
+2. **Deuxième palier (5%)**: Fermeture de 30% supplémentaires lorsque le profit atteint 5%
+3. **Troisième palier (7%)**: Fermeture du reste de la position lorsque le profit atteint 7%
+
+Cette approche permet de:
+- Sécuriser progressivement les gains
+- Laisser courir une partie des profits
+- Maximiser le ratio risque/récompense
+- Maintenir une discipline de trading systématique
+
+### Configuration de la règle 3-5-7
+
+Les paramètres sont entièrement configurables via les variables d'environnement:
+
+```
+# Take profit rules (Règle 3-5-7)
+TAKE_PROFIT_RULE_ENABLED=true
+TAKE_PROFIT_LEVEL_1=3       # Premier niveau de profit (%)
+TAKE_PROFIT_SIZE_1=30       # Pourcentage de la position à fermer au premier niveau
+TAKE_PROFIT_LEVEL_2=5       # Deuxième niveau de profit (%)
+TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
+TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
+TAKE_PROFIT_SIZE_3=100      # Pourcentage de la position à fermer au troisième niveau
+TAKE_PROFIT_TRAILING=false  # Activer/désactiver le trailing take profit
+TAKE_PROFIT_COOLDOWN=300000 # Temps minimum entre deux prises de profit (ms)
+```
+
+### Fonctionnement de la règle 3-5-7
+
+1. **Activation automatique**: Le système surveille en continu toutes les positions ouvertes.
+2. **Déclenchement des paliers**: Lorsqu'un niveau de profit est atteint, le système exécute automatiquement une prise de profit partielle.
+3. **Suivi des niveaux**: Chaque niveau de profit n'est déclenché qu'une seule fois pour éviter les fermetures multiples.
+4. **Mode trailing (optionnel)**: Lorsque activé, les niveaux de profit sont relatifs au prix le plus favorable atteint, permettant de protéger davantage les gains.
+5. **Période de refroidissement**: Un délai configurable entre les prises de profit évite les transactions excessives en cas de volatilité.
+
+### Avantages de la règle 3-5-7
+
+- **Équilibre risque/récompense**: Le ratio risque/récompense est optimisé (avec un stop loss standard à 2%, le ratio est de 1:3.5).
+- **Discipline de trading**: Élimination des biais émotionnels en automatisant les prises de profit.
+- **Flexibilité**: Les paramètres peuvent être ajustés selon la volatilité du marché et votre tolérance au risque.
+- **Maximisation des profits**: En laissant courir une partie de la position, vous pouvez capturer des mouvements de prix plus importants.
+
 ## Analyse de viabilité des positions
 
 Le bot analyse régulièrement les positions ouvertes pour déterminer si elles sont toujours viables:

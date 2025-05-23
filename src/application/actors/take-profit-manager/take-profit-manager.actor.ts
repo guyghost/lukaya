@@ -19,17 +19,16 @@ export const createTakeProfitManagerActorDefinition = (
 ): ActorDefinition<TakeProfitState, TakeProfitMessage> => {
   const logger = getLogger();
 
-  // Configuration par défaut
+  // Configuration par défaut - Règle 3-5-7 pour la gestion des prises de profit
   const defaultConfig: TakeProfitConfig = {
     enabled: true,
     profitTiers: [
-      { profitPercentage: 10, closePercentage: 25 },
-      { profitPercentage: 20, closePercentage: 33 },
-      { profitPercentage: 30, closePercentage: 50 },
-      { profitPercentage: 50, closePercentage: 100 },
+      { profitPercentage: 3, closePercentage: 30 },  // 3% de profit = fermer 30% de la position
+      { profitPercentage: 5, closePercentage: 30 },  // 5% de profit = fermer 30% supplémentaires
+      { profitPercentage: 7, closePercentage: 100 }, // 7% de profit = fermer le reste de la position
     ],
-    cooldownPeriod: 10 * 60 * 1000, // 10 minutes
-    priceTolerance: 0.5, // 0.5% de tolérance
+    cooldownPeriod: 5 * 60 * 1000, // 5 minutes (réduit pour plus de réactivité)
+    priceTolerance: 0.2, // 0.2% de tolérance (plus précis)
     trailingMode: false,
     minOrderSizePercent: 5, // Taille minimale d'ordre: 5% de la position initiale
   };
@@ -167,6 +166,46 @@ export const createTakeProfitManagerActorDefinition = (
     };
   };
 
+  // Obtenir le statut des règles de prise de profit pour une position
+  const getTakeProfitStatus = (
+    state: TakeProfitState,
+    symbol: string
+  ): { 
+    symbol: string; 
+    status: { 
+      level: number; 
+      percentage: number; 
+      triggered: boolean; 
+      currentProfit: number | null;
+    }[];
+    enabled: boolean;
+    trailingMode: boolean;
+  } | null => {
+    const position = state.positions[symbol];
+    if (!position) return null;
+    
+    // Calculer le profit actuel si on a un prix récent
+    let currentProfit = null;
+    if (position.highWatermark) {
+      currentProfit = calculateProfitPercentage(position, position.highWatermark);
+    }
+    
+    // Statut pour chaque niveau de la règle 3-5-7
+    const status = state.config.profitTiers.map((tier, index) => ({
+      level: index + 1,
+      percentage: tier.profitPercentage,
+      triggered: position.triggeredTiers.includes(index),
+      currentProfit,
+    }));
+    
+    return {
+      symbol,
+      status,
+      enabled: state.config.enabled,
+      trailingMode: state.config.trailingMode
+    };
+  };
+
   // Exécuter une prise de profit
   const executeTakeProfit = async (
     state: TakeProfitState,
@@ -180,10 +219,11 @@ export const createTakeProfitManagerActorDefinition = (
     if (!position) return;
 
     try {
-      logger.info(`Exécution de prise de profit pour ${result.symbol}`, {
-        tier: result.triggerTier,
-        profit: result.currentProfitPercentage,
-        size: result.orderSize,
+      logger.info(`[Règle 3-5-7] Exécution de prise de profit pour ${result.symbol}`, {
+        niveau: `${result.currentProfitPercentage?.toFixed(2)}%`,
+        palier: result.triggerTier === 0 ? "1er (3%)" : result.triggerTier === 1 ? "2ème (5%)" : "3ème (7%)",
+        tailleFermee: `${(result.orderSize / position.initialSize * 100).toFixed(2)}% de la position initiale`,
+        tailleRestante: `${(position.currentSize - result.orderSize) / position.initialSize * 100}% restant`,
       });
 
       // Créer les paramètres de l'ordre
@@ -192,7 +232,8 @@ export const createTakeProfitManagerActorDefinition = (
         side: result.orderSide,
         type: OrderType.MARKET,
         size: result.orderSize,
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL,
+        // Pour les ordres au marché, ne pas spécifier timeInForce
+        // car cela peut causer des problèmes de compatibilité avec l'API dYdX
       };
 
       // Placer l'ordre via le TradingPort
@@ -204,9 +245,12 @@ export const createTakeProfitManagerActorDefinition = (
         position.triggeredTiers.push(result.triggerTier);
         position.lastTakeProfit = Date.now();
 
-        logger.info(`Prise de profit exécutée avec succès pour ${result.symbol}`, {
+        logger.info(`[Règle 3-5-7] Prise de profit exécutée avec succès pour ${result.symbol}`, {
           orderId: order.id,
-          remainingSize: position.currentSize,
+          profit: `${result.currentProfitPercentage?.toFixed(2)}%`,
+          palier: result.triggerTier === 0 ? "1er palier (3%)" : result.triggerTier === 1 ? "2ème palier (5%)" : "3ème palier (7%)",
+          ferme: `${(result.orderSize / position.initialSize * 100).toFixed(2)}% de la position initiale`,
+          restant: `${(position.currentSize / position.initialSize * 100).toFixed(2)}% restant`,
         });
       }
     } catch (error) {
@@ -258,6 +302,11 @@ export const createTakeProfitManagerActorDefinition = (
       getAllPositions: async () => {
         const state = context.state();
         return state.positions;
+      },
+      
+      getTakeProfitStatus: async (symbol: string) => {
+        const state = context.state();
+        return getTakeProfitStatus(state, symbol);
       },
     };
   };

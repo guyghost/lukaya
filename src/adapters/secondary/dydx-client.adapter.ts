@@ -384,6 +384,8 @@ export const createDydxClient = (config: DydxClientConfig): {
         
         // Place order using the subaccount client
         logger.debug("Placing order", { params: orderParams });
+        
+        // Pour les ordres au marché, ne pas spécifier timeInForce
         const response = await compositeClient.placeOrder(
           subaccountClient,
           orderParams.symbol,
@@ -392,7 +394,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           orderParams.price || 0,
           orderParams.size,
           orderParams.clientId || 1,
-          mapTimeInForce(orderParams.timeInForce)
+          orderParams.type === OrderType.MARKET ? undefined : mapTimeInForce(orderParams.timeInForce)
         );
 
         // Get the order details from indexer

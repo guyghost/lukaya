@@ -106,4 +106,10 @@ export interface TakeProfitPort {
   analyzePosition(symbol: string, currentPrice: number): Promise<TakeProfitAnalysisResult>;
   getPositionState(symbol: string): Promise<PositionProfitState | null>;
   getAllPositions(): Promise<Record<string, PositionProfitState>>;
+  getTakeProfitStatus(symbol: string): Promise<{
+    symbol: string;
+    status: { level: number; percentage: number; triggered: boolean; currentProfit: number | null }[];
+    enabled: boolean;
+    trailingMode: boolean;
+  } | null>;
 }

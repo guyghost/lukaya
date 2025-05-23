@@ -382,6 +382,59 @@ export const createTradingBotService = (
             analyzeAllOpenPositions: async () => ({})
           };
           
+          // Préparer la configuration pour la règle 3-5-7 depuis les variables d'environnement
+          const takeProfitConfig = {
+            enabled: process.env.TAKE_PROFIT_RULE_ENABLED === 'true',
+            profitTiers: [
+              { 
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_1 || 3), 
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_1 || 30) 
+              },
+              { 
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_2 || 5), 
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_2 || 30) 
+              },
+              { 
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_3 || 7), 
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_3 || 100) 
+              },
+            ],
+            trailingMode: process.env.TAKE_PROFIT_TRAILING === 'true',
+            cooldownPeriod: Number(process.env.TAKE_PROFIT_COOLDOWN || 300000), // 5 minutes par défaut
+          };
+
+          // Validation des niveaux de profit
+          const validationErrors = [];
+          if (takeProfitConfig.profitTiers[0].profitPercentage >= takeProfitConfig.profitTiers[1].profitPercentage) {
+            validationErrors.push('TAKE_PROFIT_LEVEL_1 doit être inférieur à TAKE_PROFIT_LEVEL_2');
+          }
+          if (takeProfitConfig.profitTiers[1].profitPercentage >= takeProfitConfig.profitTiers[2].profitPercentage) {
+            validationErrors.push('TAKE_PROFIT_LEVEL_2 doit être inférieur à TAKE_PROFIT_LEVEL_3');
+          }
+          
+          // Validation des tailles de fermeture
+          const totalClosePercentage = takeProfitConfig.profitTiers.reduce(
+            (total, tier) => total + tier.closePercentage, 0
+          );
+          
+          if (totalClosePercentage < 100) {
+            logger.warn(`La somme des pourcentages de fermeture (${totalClosePercentage}%) est inférieure à 100%. La position ne sera pas entièrement fermée.`);
+          } else if (totalClosePercentage > 100) {
+            logger.warn(`La somme des pourcentages de fermeture (${totalClosePercentage}%) est supérieure à 100%. Les pourcentages seront ajustés proportionnellement.`);
+            // Ajuster les pourcentages
+            const ratio = 100 / totalClosePercentage;
+            takeProfitConfig.profitTiers.forEach(tier => {
+              tier.closePercentage = Math.round(tier.closePercentage * ratio);
+            });
+            logger.info(`Pourcentages de fermeture ajustés: ${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%`);
+          }
+          
+          if (validationErrors.length > 0) {
+            logger.error(`Erreurs de configuration de la règle 3-5-7: ${validationErrors.join(', ')}`);
+          } else {
+            logger.info(`Configuration de la règle 3-5-7: niveaux [${takeProfitConfig.profitTiers.map(t => t.profitPercentage).join('%, ')}%], fermetures [${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%]`);
+          }
+
           state.takeProfitIntegrator = createTakeProfitIntegrator(
             actorSystem,
             tradingPort,
@@ -393,6 +446,9 @@ export const createTradingBotService = (
             }
           );
           state.takeProfitIntegrator.start();
+          
+          // Configurer le gestionnaire de prise de profit avec la règle 3-5-7
+          state.takeProfitIntegrator.takeProfitManager.updateConfig(takeProfitConfig);
           
           // Configurer le gestionnaire de prise de profit si nécessaire
           if (options.takeProfitConfig) {

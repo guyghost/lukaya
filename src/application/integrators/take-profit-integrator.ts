@@ -72,6 +72,19 @@ export const createTakeProfitIntegrator = (
     getAllPositions: async () => {
       // Simplification
       return {};
+    },
+    getTakeProfitStatus: async (symbol) => {
+      // Simplification - dans une implémentation réelle, nous ferions un appel à l'acteur
+      return {
+        symbol,
+        status: [
+          { level: 1, percentage: 3, triggered: false, currentProfit: null },
+          { level: 2, percentage: 5, triggered: false, currentProfit: null },
+          { level: 3, percentage: 7, triggered: false, currentProfit: null },
+        ],
+        enabled: true,
+        trailingMode: false
+      };
     }
   };
   
