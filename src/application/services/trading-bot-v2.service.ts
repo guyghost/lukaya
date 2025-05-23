@@ -251,14 +251,20 @@ const closePosition = async (
   reason: string,
   context: ActorContext<TradingBotState>
 ): Promise<boolean> => {
+  const logger = getLogger();
   try {
+    logger.info(`[TRADING_BOT] Closing ${direction} position for ${symbol} (size: ${size}) - Reason: ${reason}`);
+    
     // Get current price for this symbol
+    logger.debug(`[TRADING_BOT] Fetching latest market data for ${symbol} to close position...`);
     const marketData = await marketDataPort.getLatestMarketData(symbol);
+    logger.info(`[TRADING_BOT] Market data for position closing: ${symbol} Price=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}`);
     
     // Determine which side to use for closing the position
     // If position is long, we need to SELL to close it
     // If position is short, we need to BUY to close it
     const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
+    logger.debug(`[TRADING_BOT] To close ${direction} position, using ${closeSide} order`);
     
     // Create a limit order significantly more aggressive than market to ensure execution
     // For sell: more below current price
@@ -268,6 +274,8 @@ const closePosition = async (
     const limitPrice = closeSide === OrderSide.SELL 
       ? marketData.bid * (1 - priceBuffer)  // Sell more below bid
       : marketData.ask * (1 + priceBuffer); // Buy more above ask
+    
+    logger.info(`[TRADING_BOT] Using ${priceBuffer*100}% price buffer for ${symbol} position closing. Reference price: ${closeSide === OrderSide.SELL ? marketData.bid : marketData.ask}, Close price: ${limitPrice.toFixed(2)}`);
     
     // Create close order
     const closeOrder: OrderParams = {
@@ -280,13 +288,24 @@ const closePosition = async (
       reduceOnly: true // Ensure this only closes the position
     };
     
-    getLogger().info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
+    logger.info(`[TRADING_BOT] Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
     
     // Place the order
+    logger.debug(`[TRADING_BOT] Sending close order to trading port for ${symbol}...`);
     const placedOrder = await tradingPort.placeOrder(closeOrder);
-    getLogger().info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
+    logger.info(`[TRADING_BOT] Close order placed: ${placedOrder.id}, ${closeSide} ${size} ${symbol} @ ${closeOrder.price}, Reason: ${reason}`);
+    
+    // Get trading session metrics
+    try {
+      const balances = await tradingPort.getAccountBalance();
+      const availableUSDC = balances["USDC"] || 0;
+      logger.info(`[TRADING_BOT] Account balance after position closure attempt: $${availableUSDC.toFixed(2)} USDC`);
+    } catch (err) {
+      logger.warn(`[TRADING_BOT] Could not fetch account balance after position closure`, err as Error);
+    }
     
     // Update order history
+    logger.debug(`[TRADING_BOT] Updating order history with close order ${placedOrder.id}`);
     context.send(context.self, {
       type: "ORDER_PLACED",
       order: placedOrder
@@ -294,7 +313,17 @@ const closePosition = async (
     
     return true;
   } catch (error) {
-    getLogger().error(`Error closing position ${symbol}:`, error as Error);
+    logger.error(`[TRADING_BOT] Error closing position ${symbol}:`, error as Error);
+    
+    // Try to log the current market status for debugging
+    try {
+      const marketData = await marketDataPort.getLatestMarketData(symbol);
+      logger.error(`[TRADING_BOT] Market data at time of closing error: ${symbol} Price=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}`);
+    } catch (err) {
+      // Don't let this error hide the original error
+      logger.error(`[TRADING_BOT] Could not fetch market data after position close error`, err as Error);
+    }
+    
     return false;
   }
 };
@@ -461,10 +490,28 @@ export const createTradingBotService = (
 
         // Abonner tous les symboles via le superviseur de marché
         if (state.marketSupervisorActor && state.watchedSymbols.size > 0) {
+          logger.info(`[TRADING_BOT] Sending SUBSCRIBE_ALL to market supervisor for ${state.watchedSymbols.size} symbols: ${Array.from(state.watchedSymbols).join(', ')}`);
           actorSystem.send(state.marketSupervisorActor, {
             type: "SUBSCRIBE_ALL"
           });
-          logger.info(`Subscribed to ${state.watchedSymbols.size} markets through supervisor`);
+          
+          // Vérification après un délai que les souscriptions sont actives
+          setTimeout(async () => {
+            try {
+              logger.info(`[TRADING_BOT] Verifying market subscriptions...`);
+              // Vérifier chaque symbole
+              for (const symbol of state.watchedSymbols) {
+                try {
+                  const data = await marketDataPort.getLatestMarketData(symbol);
+                  logger.info(`[TRADING_BOT] Subscription check: ${symbol} → Price: ${data.price}, Timestamp: ${new Date(data.timestamp).toISOString()}`);
+                } catch (err) {
+                  logger.error(`[TRADING_BOT] Failed to verify subscription for ${symbol}`, err as Error);
+                }
+              }
+            } catch (err) {
+              logger.error(`[TRADING_BOT] Error during subscription verification`, err as Error);
+            }
+          }, 20000);
         }
 
         // Programmer l'analyse périodique des positions
@@ -973,22 +1020,59 @@ export const createTradingBotService = (
       }
 
       case "ANALYZE_POSITIONS": {
-        logger.info("Analyzing viability of all open positions");
+        logger.info("[TRADING_BOT] Analyzing viability of all open positions (règle 3-5-7)");
+        
+        // Log the positions we're about to analyze
+        const positionCount = Object.keys(state.positions).length;
+        logger.info(`[TRADING_BOT] Analyzing ${positionCount} open positions with the 3-5-7 take profit strategy`);
+        
+        // Log position details
+        for (const [symbol, position] of Object.entries(state.positions)) {
+          logger.info(`[TRADING_BOT] Position: ${symbol}, Direction: ${position.direction}, Size: ${position.size}`);
+          
+          // Get latest market data for this position
+          try {
+            const marketData = await marketDataPort.getLatestMarketData(symbol);
+            logger.info(`[TRADING_BOT] Current market data for ${symbol}: Price=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}`);
+            
+            // Calculate potential take profit levels for the position based on 3-5-7 rule
+            if (position.direction === 'long') {
+              const tp1 = (marketData.price * 1.03).toFixed(2); // +3%
+              const tp2 = (marketData.price * 1.05).toFixed(2); // +5%
+              const tp3 = (marketData.price * 1.07).toFixed(2); // +7%
+              logger.info(`[TRADING_BOT] Long position ${symbol} - Take profit levels: TP1=${tp1}, TP2=${tp2}, TP3=${tp3}`);
+            } else if (position.direction === 'short') {
+              const tp1 = (marketData.price * 0.97).toFixed(2); // -3%
+              const tp2 = (marketData.price * 0.95).toFixed(2); // -5%
+              const tp3 = (marketData.price * 0.93).toFixed(2); // -7%
+              logger.info(`[TRADING_BOT] Short position ${symbol} - Take profit levels: TP1=${tp1}, TP2=${tp2}, TP3=${tp3}`);
+            }
+          } catch (err) {
+            logger.error(`[TRADING_BOT] Error fetching market data for position analysis: ${symbol}`, err as Error);
+          }
+        }
 
         if (state.riskManagerActor) {
+          logger.info(`[TRADING_BOT] Sending open positions to risk manager for deep analysis`);
           // Envoyer un message d'analyse des positions au gestionnaire de risques
           actorSystem.send(state.riskManagerActor, {
             type: "ANALYZE_OPEN_POSITIONS",
           });
+          logger.debug(`[TRADING_BOT] Risk manager will analyze positions and may trigger take profits based on rule 3-5-7`);
 
           // Programmer la prochaine analyse
           if (state.isRunning && options.positionAnalysisInterval) {
+            const nextAnalysisMinutes = options.positionAnalysisInterval / (60 * 1000);
+            logger.debug(`[TRADING_BOT] Next position analysis scheduled in ${nextAnalysisMinutes} minutes`);
+            
             setTimeout(() => {
               if (state.isRunning) {
                 context.send(context.self, { type: "ANALYZE_POSITIONS" });
               }
             }, options.positionAnalysisInterval);
           }
+        } else {
+          logger.warn(`[TRADING_BOT] No risk manager available to analyze positions`);
         }
 
         return { state };
@@ -998,11 +1082,18 @@ export const createTradingBotService = (
         const { symbol, isViable, reason, shouldClose, direction, size } = payload;
 
         if (!isViable) {
-          logger.warn(`Position ${symbol} is no longer viable: ${reason}`);
+          logger.warn(`[TRADING_BOT] Position ${symbol} is no longer viable: ${reason}`);
+          
+          try {
+            const marketData = await marketDataPort.getLatestMarketData(symbol);
+            logger.info(`[TRADING_BOT] Current market data for non-viable position ${symbol}: Price=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}`);
+          } catch (err) {
+            logger.error(`[TRADING_BOT] Error fetching market data for non-viable position: ${symbol}`, err as Error);
+          }
 
           // Fermer automatiquement les positions non viables si indiqué
           if (shouldClose) {
-            logger.info(`Automatically closing non-viable position: ${symbol}`);
+            logger.info(`[TRADING_BOT] Automatically closing non-viable position: ${symbol} (règle 3-5-7)`);
             
             // Essayer d'obtenir les informations de position
             const position = direction ? 
@@ -1010,6 +1101,8 @@ export const createTradingBotService = (
               Object.values(state.positions).find(p => p.symbol === symbol);
             
             if (position && position.size > 0) {
+              logger.info(`[TRADING_BOT] Closing ${position.direction} position on ${symbol} with size ${position.size}`);
+              
               // Fermer la position en utilisant la fonction d'aide
               const success = await closePosition(
                 symbol,
@@ -1017,7 +1110,7 @@ export const createTradingBotService = (
                 position.size,
                 marketDataPort,
                 tradingPort,
-                reason,
+                `${reason} - Règle 3-5-7 take profit`,
                 context
               );
               

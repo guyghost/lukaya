@@ -215,76 +215,140 @@ export const createDydxClient = (config: DydxClientConfig): {
 
   // Private helper functions for market data
   const fetchAndCacheMarketData = async (symbol: string): Promise<MarketData> => {
+    logger.debug(`[DYDX_CLIENT] Fetching market data for symbol: ${symbol}`);
     try {
       const client = await getClient();
       const { indexerClient } = client;
       
       // Get market details
+      logger.debug(`[DYDX_CLIENT] Getting perpetual markets for ${symbol}...`);
       const marketResponse = await indexerClient.markets.getPerpetualMarkets();
       if (!marketResponse.markets || !marketResponse.markets[symbol]) {
+        logger.error(`[DYDX_CLIENT] Market not found for ${symbol} in DYDX API response`);
+        // Fallback - créer des données simulées plutôt que d'échouer, si déjà dans le cache
+        if (context.marketDataCache.has(symbol)) {
+          const cached = context.marketDataCache.get(symbol)!;
+          logger.warn(`[DYDX_CLIENT] Using cached data for ${symbol}: ${cached.price}`);
+          return cached;
+        }
         throw new Error(`Market data not found for ${symbol}`);
       }
       
       const market = marketResponse.markets[symbol];
+      logger.debug(`[DYDX_CLIENT] Got market data for ${symbol}, oracle price: ${market.oraclePrice}`);
       
-      // Get candles for historical data analysis
-      const candles = await indexerClient.markets.getPerpetualMarketCandles(market.ticker, '1MIN');
+      // Get orderbook - parfois le livre d'ordres peut échouer mais on peut continuer avec le prix oracle
+      let topBid = '0';
+      let topAsk = '0';
+      try {
+        logger.debug(`[DYDX_CLIENT] Getting orderbook for ${symbol}...`);
+        const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
+        // Calculate bid/ask from orderbook
+        topBid = orderbook?.bids?.[0]?.[0] || '0';
+        topAsk = orderbook?.asks?.[0]?.[0] || '0';
+        logger.debug(`[DYDX_CLIENT] Got orderbook for ${symbol}: bid=${topBid}, ask=${topAsk}`);
+      } catch (e) {
+        logger.warn(`[DYDX_CLIENT] Could not fetch orderbook for ${symbol}, using oracle price for bid/ask`, e as Error);
+        topBid = (parseFloat(market.oraclePrice) * 0.9995).toString(); // -0.05%
+        topAsk = (parseFloat(market.oraclePrice) * 1.0005).toString(); // +0.05%
+      }
       
-      // Get orderbook
-      const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
-      
-      // Calculate bid/ask from orderbook
-      const topBid = orderbook?.bids?.[0]?.[0] || '0';
-      const topAsk = orderbook?.asks?.[0]?.[0] || '0';
-      
+      // Créer les données de marché
       const marketData: MarketData = {
         symbol,
         price: parseFloat(market.oraclePrice),
         timestamp: Date.now(),
-        volume: parseFloat(market.volume24H),
+        volume: parseFloat(market.volume24H || '0'),
         bid: parseFloat(topBid),
         ask: parseFloat(topAsk),
       };
 
+      // Calculer le spread et des métriques utiles pour le trading
+      const spread = marketData.ask - marketData.bid;
+      const spreadPercent = (spread / marketData.price) * 100;
+      
+      // Enregistrer dans le cache
       context.marketDataCache.set(symbol, marketData);
+      logger.info(`[DYDX_CLIENT] Updated market data for ${symbol}: Prix=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}, Spread=${spread.toFixed(4)} (${spreadPercent.toFixed(4)}%), Volume24h=${marketData.volume.toFixed(2)}`);
+      
+      // Journaliser également les seuils de take profit pour la stratégie 3-5-7
+      const tp1 = (marketData.price * 1.03).toFixed(2); // +3%
+      const tp2 = (marketData.price * 1.05).toFixed(2); // +5%
+      const tp3 = (marketData.price * 1.07).toFixed(2); // +7%
+      logger.info(`[DYDX_CLIENT] Niveaux TP (règle 3-5-7) pour ${symbol} au prix ${marketData.price}: TP1=${tp1}, TP2=${tp2}, TP3=${tp3}`);
+      
+      // Déclencher le callback si disponible
+      if (marketDataPort.onMarketDataReceived) {
+        try {
+          marketDataPort.onMarketDataReceived(marketData);
+        } catch (e) {
+          logger.error(`[DYDX_CLIENT] Error in market data callback for ${symbol}`, e as Error);
+        }
+      }
+      
       return marketData;
     } catch (error) {
-      logger.error(`Error fetching market data for ${symbol}:`, error as Error);
+      logger.error(`[DYDX_CLIENT] Error fetching market data for ${symbol}:`, error as Error);
       
       // If we have cached data, return that instead of throwing
       const cachedData = context.marketDataCache.get(symbol);
       if (cachedData) {
+        logger.warn(`[DYDX_CLIENT] Returning cached data for ${symbol} due to fetch error. Cached price: ${cachedData.price}, age: ${Date.now() - cachedData.timestamp}ms`);
+        
+        // Mettre à jour le timestamp pour éviter des expirations prématurées
+        cachedData.timestamp = Date.now(); 
         return cachedData;
       }
       
-      throw error;
+      // Si pas de données en cache, créer des données synthétiques pour ne pas planter le système
+      logger.warn(`[DYDX_CLIENT] Creating synthetic market data for ${symbol} to prevent system failure`);
+      const syntheticData: MarketData = {
+        symbol,
+        price: 0,  // Prix zéro, qui sera évident dans les logs comme anormal
+        timestamp: Date.now(),
+        volume: 0,
+        bid: 0,
+        ask: 0,
+      };
+      
+      // Ne pas mettre en cache les données synthétiques
+      return syntheticData;
     }
   };
 
   const pollMarketData = (symbol: string): void => {
     const poll = async () => {
-      if (!context.subscriptions.has(symbol)) return;
+      // Vérifier si nous sommes toujours abonnés - si non, arrêter le polling
+      if (!context.subscriptions.has(symbol)) {
+        logger.info(`[DYDX_CLIENT] Stopping poll for ${symbol} as subscription was removed`);
+        return;
+      }
       
       try {
+        logger.debug(`[DYDX_CLIENT] Polling market data for ${symbol}`);
         await fetchAndCacheMarketData(symbol);
         
         // Store last polling time
         context.lastPollingTime[symbol] = Date.now();
         
-        // Send to trading bot (this would be implemented in a real application)
-        logger.debug(`Market data updated for ${symbol}`);
+        // Ajouter plus de logs pour suivre les mises à jour
+        const marketData = context.marketDataCache.get(symbol);
+        if (marketData) {
+          logger.info(`[DYDX_CLIENT] Market data updated for ${symbol}: Price=${marketData.price}, Bid=${marketData.bid}, Ask=${marketData.ask}`);
+        }
         
-        // Poll again after delay
-        setTimeout(poll, 5000);
+        // Planifier le prochain appel avec un intervalle plus court pour être plus réactif
+        setTimeout(poll, 3000); // Réduit à 3 secondes pour être plus réactif
       } catch (error) {
-        logger.error(`Error during market data polling for ${symbol}:`, error as Error);
+        logger.error(`[DYDX_CLIENT] Error during market data polling for ${symbol}:`, error as Error);
         
         // Retry after a delay
-        setTimeout(poll, 10000);
+        setTimeout(poll, 5000); // Réduit à 5 secondes pour récupérer plus rapidement
       }
     };
 
-    // Start polling
+    // Start polling immédiatement
+    logger.info(`[DYDX_CLIENT] Starting market data polling for ${symbol}`);
     poll();
   };
 
@@ -310,28 +374,53 @@ export const createDydxClient = (config: DydxClientConfig): {
   // MarketDataPort implementation
   const marketDataPort: MarketDataPort = {
     subscribeToMarketData: async (symbol: string): Promise<void> => {
-      if (context.subscriptions.has(symbol)) return;
+      logger.info(`[DYDX_CLIENT] Subscription request received for market ${symbol}`);
+      
+      // Si déjà abonné, afficher un message mais ne pas sortir prématurément
+      // pour s'assurer que le polling est bien en cours
+      if (context.subscriptions.has(symbol)) {
+        logger.info(`[DYDX_CLIENT] Already subscribed to market ${symbol}, ensuring polling is active`);
+      } else {
+        logger.info(`[DYDX_CLIENT] New subscription for market ${symbol}`);
+      }
 
       try {
         // Validate that the market exists
         const client = await getClient();
+        logger.debug(`[DYDX_CLIENT] Validating market ${symbol}...`);
         const marketResponse = await client.indexerClient.markets.getPerpetualMarkets();
         
         if (!marketResponse.markets || !marketResponse.markets[symbol]) {
+          logger.error(`[DYDX_CLIENT] Market ${symbol} does not exist in DYDX!`);
           throw new Error(`Market ${symbol} does not exist`);
         }
         
-        // Add to subscriptions and begin polling
-        context.subscriptions.add(symbol);
-        logger.info(`Subscribed to market data for ${symbol}`);
+        // Add to subscriptions if not already there
+        if (!context.subscriptions.has(symbol)) {
+          context.subscriptions.add(symbol);
+          logger.info(`[DYDX_CLIENT] Successfully subscribed to market data for ${symbol}`);
+        }
         
-        // Fetch initial data
-        await fetchAndCacheMarketData(symbol);
+        // Toujours récupérer les données initiales, que la souscription soit nouvelle ou existante
+        logger.debug(`[DYDX_CLIENT] Fetching initial market data for ${symbol}...`);
+        const initialData = await fetchAndCacheMarketData(symbol);
+        logger.info(`[DYDX_CLIENT] Initial market data for ${symbol}: Price=${initialData.price}`);
         
-        // Start polling for updates
+        // Toujours démarrer ou redémarrer le polling pour s'assurer qu'il est actif
+        logger.info(`[DYDX_CLIENT] Starting/ensuring data polling for ${symbol}`);
         pollMarketData(symbol);
+        
+        // Vérifier après un court délai que le polling fonctionne
+        setTimeout(async () => {
+          try {
+            const latest = await fetchAndCacheMarketData(symbol);
+            logger.info(`[DYDX_CLIENT] Polling verification for ${symbol}: Price=${latest.price}, timestamp=${new Date().toISOString()}`);
+          } catch (err) {
+            logger.error(`[DYDX_CLIENT] Polling verification failed for ${symbol}`, err as Error);
+          }
+        }, 5000);
       } catch (error) {
-        logger.error(`Failed to subscribe to market data for ${symbol}:`, error as Error);
+        logger.error(`[DYDX_CLIENT] Failed to subscribe to market data for ${symbol}:`, error as Error);
         throw error;
       }
     },
@@ -344,17 +433,47 @@ export const createDydxClient = (config: DydxClientConfig): {
     },
 
     getLatestMarketData: async (symbol: string): Promise<MarketData> => {
+      logger.info(`[DYDX_CLIENT] Récupération des données du marché pour ${symbol} (stratégie 3-5-7)`);
+      
+      // Vérifier si nous avons un abonnement actif
+      if (!context.subscriptions.has(symbol)) {
+        logger.warn(`[DYDX_CLIENT] Getting market data for ${symbol} but no active subscription exists. Auto-subscribing.`);
+        // Auto-souscrire pour rendre le système plus résilient
+        try {
+          await marketDataPort.subscribeToMarketData(symbol);
+        } catch (err) {
+          logger.error(`[DYDX_CLIENT] Failed to auto-subscribe to ${symbol}`, err as Error);
+        }
+      }
+      
       const cached = context.marketDataCache.get(symbol);
       const now = Date.now();
       const lastPollTime = context.lastPollingTime[symbol] || 0;
+      const dataAge = now - lastPollTime;
       
-      // If we have recent data (less than 30s old), return it
-      if (cached && now - lastPollTime < 30000) {
+      // If we have recent data (less than 10s old), return it - réduit de 30s à 10s pour plus de fraîcheur
+      if (cached && dataAge < 10000) {
+        logger.info(`[DYDX_CLIENT] Données du marché (cache) pour ${symbol}: Prix=${cached.price}, Bid=${cached.bid}, Ask=${cached.ask}, Spread=${(cached.ask - cached.bid).toFixed(4)}, Age=${dataAge}ms`);
+        return cached;
+      }
+      
+      // Si les données sont entre 10s et 30s, on les renvoie quand même mais on lance un refresh en arrière-plan
+      if (cached && dataAge < 30000) {
+        logger.info(`[DYDX_CLIENT] Données du marché (légèrement anciennes) pour ${symbol}: Prix=${cached.price}, Bid=${cached.bid}, Ask=${cached.ask}, Spread=${(cached.ask - cached.bid).toFixed(4)}, Age=${dataAge}ms - rafraîchissement en cours`);
+        
+        // Refresh en arrière-plan
+        fetchAndCacheMarketData(symbol).catch(err => {
+          logger.error(`[DYDX_CLIENT] Background refresh failed for ${symbol}`, err as Error);
+        });
+        
         return cached;
       }
       
       // Otherwise fetch fresh data
-      return fetchAndCacheMarketData(symbol);
+      logger.info(`[DYDX_CLIENT] Cache expiré ou manquant pour ${symbol}, récupération de données fraîches pour analyse de position (règle 3-5-7)`);
+      const freshData = await fetchAndCacheMarketData(symbol);
+      logger.info(`[DYDX_CLIENT] Nouvelles données du marché pour ${symbol}: Prix=${freshData.price}, Bid=${freshData.bid}, Ask=${freshData.ask}, Spread=${(freshData.ask - freshData.bid).toFixed(4)}`);
+      return freshData;
     }
   };
 

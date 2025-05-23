@@ -157,15 +157,30 @@ export const createMarketSupervisorActorDefinition = (
       }
       
       case "SUBSCRIBE_ALL": {
-        logger.info(`Subscribing to all ${state.marketActors.size} markets`);
+        logger.info(`[MARKET_SUPERVISOR] Subscribing to all ${state.marketActors.size} markets`);
+        
+        // Compteur pour vérifier les souscriptions
+        let subscriptionCount = 0;
+        const subscribedSymbols = new Set<string>();
         
         // Abonner tous les acteurs de marché
         for (const [symbol, actorAddress] of state.marketActors.entries()) {
+          logger.info(`[MARKET_SUPERVISOR] Sending SUBSCRIBE message to market actor for ${symbol}`);
           actorSystem.send(actorAddress, { type: "SUBSCRIBE", symbol });
           
           // Ajouter à l'ensemble des symboles abonnés
           state.subscribedSymbols.add(symbol);
+          subscribedSymbols.add(symbol);
+          subscriptionCount++;
         }
+        
+        logger.info(`[MARKET_SUPERVISOR] Sent ${subscriptionCount} subscription messages to market actors`);
+        
+        // Planifier une vérification de l'état des abonnements
+        setTimeout(() => {
+          logger.info(`[MARKET_SUPERVISOR] Verification: ${subscribedSymbols.size} markets should be subscribed`);
+          // Ici on pourrait ajouter un mécanisme de réessai pour les échecs
+        }, 10000); // Vérifier après 10 secondes
         
         return { state };
       }

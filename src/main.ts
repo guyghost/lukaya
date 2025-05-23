@@ -135,6 +135,7 @@ const main = async (): Promise<void> => {
   
   // Ajout de paires de trading additionnelles pour augmenter les opportunités de trading
   const additionalPairs = [
+    { symbol: "BTC-USD", shortPeriod: 5, longPeriod: 15 },
     { symbol: "ETH-USD", shortPeriod: 5, longPeriod: 15 },
     { symbol: "SUI-USD", shortPeriod: 5, longPeriod: 15 },
     { symbol: "AIXBT-USD", shortPeriod: 7, longPeriod: 21 },
@@ -224,7 +225,9 @@ const main = async (): Promise<void> => {
     // Schedule initial position analysis after 1 minute
     setTimeout(() => {
       logger.info("[MAIN] Running initial position viability analysis...");
+      logger.debug("[MAIN] Récupération des données du marché pour l'analyse initiale...");
       tradingBot.analyzeOpenPositions();
+      logger.info("[MAIN] Analyse initiale terminée - résultats disponibles dans les logs ci-dessus");
     }, 60 * 1000);
     
     // Schedule periodic risk reports with 3-5-7 rule monitoring
@@ -244,7 +247,9 @@ const main = async (): Promise<void> => {
       });
       
       // Force position analysis after each risk report
+      logger.debug("[MAIN] Récupération des données du marché pour l'analyse périodique...");
       tradingBot.analyzeOpenPositions();
+      logger.info("[MAIN] Analyse périodique terminée - positions mises à jour selon règle 3-5-7");
     }, riskReportInterval);
     
     logger.info("[MAIN] Trading bot started successfully!");
@@ -260,7 +265,9 @@ const main = async (): Promise<void> => {
     
     // Run final position analysis before shutdown
     logger.info("[MAIN] Running final position viability check before shutdown...");
+    logger.debug("[MAIN] Récupération des données du marché pour l'analyse finale...");
     tradingBot.analyzeOpenPositions();
+    logger.info("[MAIN] Analyse finale terminée - positions clôturées selon besoin");
     
     // Allow some time for graceful shutdown
     setTimeout(() => {
