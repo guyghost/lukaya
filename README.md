@@ -48,7 +48,7 @@ STOP_LOSS_PERCENT=0.02     # Pourcentage de stop loss (2%)
 DEFAULT_ACCOUNT_SIZE=10000 # Taille du compte en USD pour le calcul du risque
 MAX_CAPITAL_PER_TRADE=0.25 # Pourcentage maximum du capital par trade (25%)
 MAX_FUNDS_PER_ORDER=0.25   # Pourcentage maximum des fonds disponibles par ordre (25%)
-USE_LIMIT_ORDERS=true      # Utiliser des ordres limite au lieu d'ordres au marché
+USE_LIMIT_ORDERS=false      # Utiliser des ordres au marché par défaut (true pour ordres limite)
 LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%)
 ```
 
@@ -63,14 +63,16 @@ LOG_TO_FILE="true" # Activer les logs dans un fichier
 LOG_FILE_PATH="./logs/lukaya.log" # Chemin du fichier de logs
 ```
 
-### Paramètres des ordres limite
+### Paramètres des ordres
 
 ```
-USE_LIMIT_ORDERS=true      # Activer les ordres limite au lieu des ordres au marché
-LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%)
+USE_LIMIT_ORDERS=false     # Désactivé par défaut (utiliser des ordres au marché)
+LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%) si activés
 ```
 
-Quand `USE_LIMIT_ORDERS` est activé:
+Par défaut, le bot utilise des ordres au marché pour une exécution immédiate.
+
+Quand `USE_LIMIT_ORDERS` est activé (=true):
 - Les ordres d'achat sont placés légèrement au-dessus du prix bid
 - Les ordres de vente sont placés légèrement en-dessous du prix ask
 - Le buffer détermine la distance entre le prix du marché et le prix limite
@@ -94,7 +96,7 @@ Le bot de trading:
 6. Évalue la liquidité disponible sur le marché
 7. Analyse régulièrement la viabilité des positions ouvertes
 8. Ferme automatiquement les positions qui ne sont plus viables
-9. Place des ordres limite avec un prix optimisé pour améliorer l'exécution
+9. Place des ordres au marché pour une exécution immédiate (ou des ordres limite si configuré)
 10. Suit l'état des ordres et gère les remplissages partiels
 
 ## Stratégies disponibles
@@ -120,7 +122,7 @@ Gestion du risque et de la liquidité:
 - Il évalue la liquidité disponible par rapport à MIN_LIQUIDITY_RATIO
 - Si la liquidité est insuffisante, la taille de l'ordre est réduite
 - Si la liquidité est trop faible (moins de 10% de la taille calculée), l'ordre n'est pas exécuté
-- Utilisation d'ordres limite avec un buffer configurable pour optimiser les prix d'exécution
+- Utilisation d'ordres au marché par défaut avec option configurable pour les ordres limite
 
 ## Analyse de viabilité des positions
 
@@ -137,7 +139,7 @@ L'analyse de viabilité est effectuée automatiquement toutes les 5 minutes (con
 
 Lorsqu'une position est identifiée comme non viable, le bot la ferme automatiquement:
 
-1. Un ordre de fermeture limite est créé avec un prix légèrement plus agressif que le marché pour garantir l'exécution
+1. Un ordre de fermeture au marché est créé pour garantir une exécution immédiate
 2. L'ordre est marqué comme `reduceOnly` pour s'assurer qu'il ne fait que fermer la position existante
 3. La transaction est enregistrée dans le suivi de performance avec le tag `non_viable`
 4. Un message détaillé est inscrit dans les logs expliquant la raison de la fermeture

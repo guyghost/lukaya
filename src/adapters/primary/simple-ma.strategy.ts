@@ -23,6 +23,7 @@ interface SimpleMAConfig {
   accountSize?: number; // Taille du compte en USD (optionnel, sera récupéré dynamiquement si non fourni)
   maxCapitalPerTrade?: number; // Pourcentage maximum du capital pour un trade (0.25 = 25%)
   limitOrderBuffer?: number; // Buffer pour les ordres limite (0.0005 = 0.05%)
+  useLimitOrders?: boolean; // Utiliser des ordres limite au lieu d'ordres au marché
 }
 
 interface SimpleMAState {
@@ -53,6 +54,7 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
   const defaultAccountSize = config.accountSize || 10000; // 10000 USD par défaut si non spécifié
   const maxCapitalPerTrade = config.maxCapitalPerTrade || 0.25; // 25% maximum du capital par trade
   const limitOrderBuffer = config.limitOrderBuffer || 0.0005; // 0.05% buffer par défaut pour les ordres limite
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : false; // Utiliser des ordres au marché par défaut
 
   // Helper function to calculate moving average
   const calculateMA = (period: number, offset: number = 0): number => {
@@ -262,13 +264,19 @@ export const createSimpleMAStrategy = (config: SimpleMAConfig): Strategy => {
           ? Math.round(marketData.bid * (1 + slippageBuffer) * 100) / 100 // Arrondi à 2 décimales
           : Math.round(marketData.ask * (1 - slippageBuffer) * 100) / 100;
 
-      // Pour les ordres d'entrée, on peut aussi ajouter un stop loss automatique
+      // Déterminer si on utilise un ordre limite ou au marché
       const orderParams: OrderParams = {
         symbol: config.symbol,
         side: orderSide,
-        type: OrderType.MARKET,
+        type: useLimitOrders ? OrderType.LIMIT : OrderType.MARKET,
         size: adjustedSize,
       };
+
+      // Si on utilise un ordre limite, ajouter le prix limite
+      if (useLimitOrders && orderParams.type === OrderType.LIMIT) {
+        orderParams.price = limitPrice;
+        orderParams.postOnly = true; // Garantir l'ajout de liquidité
+      }
 
       return orderParams;
     },

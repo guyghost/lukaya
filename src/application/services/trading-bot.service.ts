@@ -267,22 +267,15 @@ export const createTradingBotService = (
       // If position is short, we need to BUY to close it
       const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
       
-      // Create a limit order slightly more aggressive than market to ensure execution
-      // For sell: slightly below current price
-      // For buy: slightly above current price
-      const priceBuffer = 0.001; // 0.1% buffer
-      const limitPrice = closeSide === OrderSide.SELL 
-        ? marketData.bid * (1 - priceBuffer)  // Sell slightly below bid
-        : marketData.ask * (1 + priceBuffer); // Buy slightly above ask
+      // Create a market order for immediate execution
+      // No need to calculate prices, as market orders execute at the best available price
       
-      // Create close order
+      // Create close order as market order
       const closeOrder: OrderParams = {
         symbol,
         side: closeSide,
-        type: OrderType.LIMIT,
+        type: OrderType.MARKET,
         size: size,
-        price: Math.round(limitPrice * 100) / 100, // Round to 2 decimal places
-        timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL, // Use IOC to ensure immediate execution or cancellation
         reduceOnly: true // Ensure this only closes the position
       };
       

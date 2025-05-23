@@ -71,7 +71,7 @@ export const loadConfig = (): ConfigType => {
       maxFundsPerOrder: Number(process.env.MAX_FUNDS_PER_ORDER || 0.25),
       positionAnalysisInterval: Number(process.env.POSITION_ANALYSIS_INTERVAL || 300000),
       limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-      useLimitOrders: process.env.USE_LIMIT_ORDERS !== 'false',
+      useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
     },
     strategies: process.env.DEFAULT_SYMBOLS
       ? process.env.DEFAULT_SYMBOLS.split(",").map((symbol) => ({
@@ -89,6 +89,7 @@ export const loadConfig = (): ConfigType => {
             accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
             maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
             limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+            useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
           },
         }))
       : [
@@ -107,6 +108,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
             },
           },
         ],
