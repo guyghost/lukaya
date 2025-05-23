@@ -97,6 +97,7 @@ export const initializeLogger = (config: ConfigType): void => {
   if (config.logging.fileOutput && config.logging.logFilePath) {
     const logDir = path.dirname(config.logging.logFilePath);
     if (!fs.existsSync(logDir)) {
+      // @ts-ignore - TypeScript ne reconnaît pas l'option recursive dans cette version
       fs.mkdirSync(logDir, { recursive: true });
     }
   }

@@ -8,10 +8,12 @@
     "build": "tsc",
     "dev": "bun run src/main.ts",
     "start": "bun run dist/main.js",
-    "test:rule-3-5-7": "bun run src/examples/test-rule-3-5-7.ts"
+    "test:rule-3-5-7": "bun run src/examples/test-rule-3-5-7.ts",
+    "test:strategies": "bun run src/examples/test-strategies.ts"
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "1.21.3",
+    "technicalindicators": "^3.1.0",
     "zod": "3.22.4"
   },
   "devDependencies": {

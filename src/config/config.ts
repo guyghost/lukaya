@@ -74,33 +74,102 @@ export const loadConfig = (): ConfigType => {
       useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
     },
     strategies: process.env.DEFAULT_SYMBOLS
-      ? process.env.DEFAULT_SYMBOLS.split(",").map((symbol) => ({
-          type: "simple-ma",
-          enabled: true,
-          parameters: {
-            shortPeriod: Number(process.env.MA_SHORT_PERIOD || 10),
-            longPeriod: Number(process.env.MA_LONG_PERIOD || 30),
-            symbol: symbol.trim(),
-            positionSize: Number(process.env.DEFAULT_POSITION_SIZE || 0.01),
-            maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.0),
-            minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 10.0),
-            riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
-            stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
-            accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
-            maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
-            limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-            useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
-          },
-        }))
-      : [
+      ? process.env.DEFAULT_SYMBOLS.split(",").flatMap((symbol) => [
+          // Stratégie de divergence RSI
           {
-            type: "simple-ma",
+            type: "rsi-divergence",
             enabled: true,
             parameters: {
-              shortPeriod: Number(process.env.MA_SHORT_PERIOD || 10),
-              longPeriod: Number(process.env.MA_LONG_PERIOD || 30),
+              rsiPeriod: Number(process.env.RSI_DIVERGENCE_PERIOD || 8),
+              divergenceWindow: Number(process.env.RSI_DIVERGENCE_WINDOW || 5),
+              symbol: symbol.trim(),
+              positionSize: Number(process.env.RSI_DIVERGENCE_POSITION_SIZE || 0.015),
+              overboughtLevel: Number(process.env.RSI_DIVERGENCE_OVERBOUGHT || 70),
+              oversoldLevel: Number(process.env.RSI_DIVERGENCE_OVERSOLD || 30),
+              maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.5),
+              minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 6.0),
+              riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
+              stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
+              accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+              maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+              limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+            },
+          },
+          // Stratégie d'analyse des volumes
+          {
+            type: "volume-analysis",
+            enabled: true,
+            parameters: {
+              volumeThreshold: Number(process.env.VOLUME_THRESHOLD || 1.5),
+              volumeMALength: Number(process.env.VOLUME_MA_LENGTH || 20),
+              priceMALength: Number(process.env.VOLUME_PRICE_MA_LENGTH || 10),
+              symbol: symbol.trim(),
+              positionSize: Number(process.env.VOLUME_POSITION_SIZE || 0.015),
+              volumeSpikeFactor: Number(process.env.VOLUME_SPIKE_FACTOR || 2.5),
+              priceSensitivity: Number(process.env.VOLUME_PRICE_SENSITIVITY || 0.01),
+              maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.5),
+              minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 6.0),
+              riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
+              stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
+              accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+              maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+              limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+            },
+          },
+          // Stratégie des vagues d'Elliott
+          {
+            type: "elliott-wave",
+            enabled: true,
+            parameters: {
+              waveDetectionLength: Number(process.env.WAVE_DETECTION_LENGTH || 15),
+              priceSensitivity: Number(process.env.PRICE_SENSITIVITY || 3),
+              symbol: symbol.trim(),
+              positionSize: Number(process.env.ELLIOTT_POSITION_SIZE || 0.015),
+              zerolineBufferPercent: Number(process.env.ZERO_LINE_BUFFER || 0.5),
+              maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.5),
+              minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 6.0),
+              riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
+              stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
+              accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+              maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+              limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+            },
+          },
+          // Stratégie des patterns harmoniques
+          {
+            type: "harmonic-pattern",
+            enabled: true,
+            parameters: {
+              detectionLength: Number(process.env.PATTERN_DETECTION_LENGTH || 20),
+              fibRetracementTolerance: Number(process.env.FIB_RETRACEMENT_TOLERANCE || 0.03),
+              symbol: symbol.trim(),
+              positionSize: Number(process.env.HARMONIC_POSITION_SIZE || 0.015),
+              patternConfirmationPercentage: Number(process.env.PATTERN_CONFIRMATION_PCT || 90),
+              maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.5),
+              minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 6.0),
+              riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),
+              stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || 0.02),
+              accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
+              maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
+              limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
+              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+            },
+          },
+        ])
+      : [
+          {
+            type: "rsi-divergence",
+            enabled: true,
+            parameters: {
+              rsiPeriod: Number(process.env.RSI_DIVERGENCE_PERIOD || 8),
+              divergenceWindow: Number(process.env.RSI_DIVERGENCE_WINDOW || 5),
               symbol: "BTC-USD",
-              positionSize: Number(process.env.DEFAULT_POSITION_SIZE || 0.01),
+              positionSize: Number(process.env.RSI_DIVERGENCE_POSITION_SIZE || 0.015),
+              overboughtLevel: Number(process.env.RSI_DIVERGENCE_OVERBOUGHT || 70),
+              oversoldLevel: Number(process.env.RSI_DIVERGENCE_OVERSOLD || 30),
               maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.0),
               minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 10.0),
               riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),

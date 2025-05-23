@@ -3,7 +3,10 @@
 import { loadConfig, getNetworkFromString } from "./config/config";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
 import { createTradingBotService } from "./application/services/trading-bot.service";
-import { createSimpleMAStrategy } from "./adapters/primary/simple-ma.strategy";
+import { createRsiDivergenceStrategy } from "./adapters/primary/rsi-divergence.strategy";
+import { createVolumeAnalysisStrategy } from "./adapters/primary/volume-analysis.strategy";
+import { createElliottWaveStrategy } from "./adapters/primary/elliott-wave.strategy";
+import { createHarmonicPatternStrategy } from "./adapters/primary/harmonic-pattern.strategy";
 import { initializeLogger, getLogger } from "./infrastructure/logger";
 import { RiskManagerConfig } from "./application/actors/risk-manager/risk-manager.model";
 import { StrategyManagerConfig } from "./application/actors/strategy-manager/strategy-manager.model";
@@ -94,15 +97,32 @@ const main = async (): Promise<void> => {
     }
     
     try {
-      if (strategyConfig.type === "simple-ma") {
-        logger.debug("Initializing Simple MA strategy with parameters", strategyConfig.parameters);
-        const strategy = createSimpleMAStrategy(strategyConfig.parameters as any);
-        tradingBot.addStrategy(strategy);
-        logger.info(`Added strategy: ${strategy.getName()}`);
-      } else {
+      let strategy;
+      
+      if (strategyConfig.type === "rsi-divergence") {
+        logger.debug("Initializing RSI Divergence strategy with parameters", strategyConfig.parameters);
+        strategy = createRsiDivergenceStrategy(strategyConfig.parameters as any);
+      } 
+      else if (strategyConfig.type === "volume-analysis") {
+        logger.debug("Initializing Volume Analysis strategy with parameters", strategyConfig.parameters);
+        strategy = createVolumeAnalysisStrategy(strategyConfig.parameters as any);
+      } 
+      else if (strategyConfig.type === "elliott-wave") {
+        logger.debug("Initializing Elliott Wave strategy with parameters", strategyConfig.parameters);
+        strategy = createElliottWaveStrategy(strategyConfig.parameters as any);
+      } 
+      else if (strategyConfig.type === "harmonic-pattern") {
+        logger.debug("Initializing Harmonic Pattern strategy with parameters", strategyConfig.parameters);
+        strategy = createHarmonicPatternStrategy(strategyConfig.parameters as any);
+      } 
+      else {
         logger.warn(`Unknown strategy type: ${strategyConfig.type}`);
+        return;
       }
-    } catch (error) {
+      
+      tradingBot.addStrategy(strategy);
+      logger.info(`Added strategy: ${strategy.getName()}`);
+    } catch (error: any) {
       logger.error(`Failed to initialize strategy: ${strategyConfig.type}`, error as Error);
     }
   }
@@ -145,8 +165,8 @@ const main = async (): Promise<void> => {
     }, 3000); // Extended timeout to allow for final analysis
   });
   
-  process.on("uncaughtException", (error) => {
-    logger.error("Uncaught exception", error as Error);
+  process.on("uncaughtException", (error: Error) => {
+    logger.error("Uncaught exception", error);
     
     // Give some time for error to be logged
     setTimeout(() => {
@@ -154,7 +174,7 @@ const main = async (): Promise<void> => {
     }, 500);
   });
   
-  process.on("unhandledRejection", (reason) => {
+  process.on("unhandledRejection", (reason: unknown) => {
     logger.error("Unhandled promise rejection", reason instanceof Error ? reason : new Error(String(reason)));
     
     // Give some time for error to be logged
@@ -164,7 +184,7 @@ const main = async (): Promise<void> => {
   });
 };
 
-main().catch((error) => {
+main().catch((error: Error) => {
   // Fallback error handling if logger initialization fails
   console.error("Fatal error:", error);
   process.exit(1);

@@ -168,12 +168,12 @@ export const createTakeProfitIntegrator = (
   // Arrêter la surveillance
   const stop = () => {
     if (priceCheckIntervalId) {
-      clearInterval(priceCheckIntervalId as unknown as NodeJS.Timeout);
+      clearInterval(priceCheckIntervalId);
       priceCheckIntervalId = null;
     }
     
     if (positionCheckIntervalId) {
-      clearInterval(positionCheckIntervalId as unknown as NodeJS.Timeout);
+      clearInterval(positionCheckIntervalId);
       positionCheckIntervalId = null;
     }
     
