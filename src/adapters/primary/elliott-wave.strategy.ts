@@ -68,7 +68,7 @@ export const createElliottWaveStrategy = (config: ElliottWaveConfig): Strategy =
   // Paramètres par défaut
   const maxSlippagePercent = config.maxSlippagePercent || 1.0;
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
-  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : false;
   const zerolineBuffer = config.zerolineBufferPercent || 0.5; // % au-dessus/dessous du milieu pour définir la zone neutre
 
   // Identifier les pivots dans la série de prix

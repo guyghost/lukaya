@@ -18,6 +18,7 @@ import { createMarketActorDefinition } from "../actors/market.actor";
 import { createRiskManagerActorDefinition } from "../actors/risk-manager/risk-manager.actor";
 import { createStrategyManagerActorDefinition } from "../actors/strategy-manager/strategy-manager.actor";
 import { createPerformanceTrackerActorDefinition } from "../actors/performance-tracker/performance-tracker.actor";
+import { createStrategyActorDefinition } from "../../adapters/primary/strategy-actor.adapter";
 import {
   PositionRisk,
   RiskManagerConfig,
@@ -46,6 +47,7 @@ interface TradingBotState {
   isRunning: boolean;
   strategyService: StrategyService;
   marketActors: Map<string, ActorAddress>;
+  strategyActors: Map<string, ActorAddress>; // Acteurs individuels pour chaque stratégie
   orderHistory: Order[];
   riskManagerActor: ActorAddress | null;
   strategyManagerActor: ActorAddress | null;
@@ -240,6 +242,7 @@ export const createTradingBotService = (
     isRunning: false,
     strategyService: createStrategyService(),
     marketActors: new Map(),
+    strategyActors: new Map(),
     orderHistory: [],
     riskManagerActor: null,
     strategyManagerActor: null,
@@ -482,6 +485,16 @@ export const createTradingBotService = (
           actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
         }
         
+        // Arrêter tous les acteurs de stratégie
+        for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
+          logger.debug(`Stopping strategy actor for: ${strategyId}`);
+          try {
+            actorSystem.stop(actorAddress);
+          } catch (error) {
+            logger.error(`Error stopping strategy actor: ${strategyId}`, error as Error);
+          }
+        }
+        
         // Arrêter le gestionnaire de prise de profits
         if (state.takeProfitIntegrator) {
           state.takeProfitIntegrator.stop();
@@ -534,6 +547,27 @@ export const createTradingBotService = (
             logger.debug(`Using existing market actor for symbol: ${symbol}`);
           }
         }
+        
+        // Créer un acteur de stratégie pour cette stratégie
+        if (state.strategyManagerActor) {
+          const strategyId = strategy.getId();
+          logger.info(`Creating dedicated actor for strategy: ${strategyId}`);
+          
+          // Créer l'acteur de stratégie qui va communiquer avec le Strategy Manager
+          const strategyActorDef = createStrategyActorDefinition(
+            strategy,
+            state.strategyManagerActor
+          );
+          
+          const strategyActorAddress = actorSystem.createActor(strategyActorDef);
+          
+          // Stocker la référence de l'acteur de stratégie
+          state.strategyActors.set(strategyId, strategyActorAddress);
+          
+          logger.debug(`Created strategy actor for strategy: ${strategyId}`);
+        } else {
+          logger.warn(`Cannot create strategy actor: Strategy manager not initialized`);
+        }
 
         return { state };
       }
@@ -547,6 +581,24 @@ export const createTradingBotService = (
         const strategySymbol = strategy
           ? (strategy.getConfig().parameters as Record<string, string>).symbol
           : undefined;
+
+        // Supprimer l'acteur de stratégie s'il existe
+        if (state.strategyActors.has(strategyId)) {
+          const strategyActorAddress = state.strategyActors.get(strategyId)!;
+          logger.debug(`Stopping strategy actor for: ${strategyId}`);
+          
+          try {
+            // Arrêter l'acteur de stratégie
+            actorSystem.stop(strategyActorAddress);
+            
+            // Supprimer de notre map
+            state.strategyActors.delete(strategyId);
+            
+            logger.debug(`Removed strategy actor for: ${strategyId}`);
+          } catch (error) {
+            logger.error(`Error stopping strategy actor: ${strategyId}`, error as Error);
+          }
+        }
 
         // Unregister the strategy
         state.strategyService.unregisterStrategy(strategyId);
@@ -589,12 +641,21 @@ export const createTradingBotService = (
           `Processing market data for ${data.symbol}: ${data.price}`,
         );
 
-        // Send market data to strategy manager if available
-        if (state.strategyManagerActor) {
-          actorSystem.send(state.strategyManagerActor, {
-            type: "PROCESS_MARKET_DATA",
-            data,
-          });
+        // Envoyer les données de marché à tous les acteurs de stratégie concernés
+        for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
+          // Obtenir la stratégie pour vérifier si le symbole correspond
+          const strategy = state.strategyService.getStrategy(strategyId);
+          if (!strategy) continue;
+          
+          const strategySymbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
+          
+          // Si le symbole correspond, envoyer les données à l'acteur de stratégie
+          if (strategySymbol === data.symbol) {
+            actorSystem.send(actorAddress, {
+              type: "PROCESS_MARKET_DATA",
+              data,
+            });
+          }
         }
 
         // Send market update to risk manager to update positions

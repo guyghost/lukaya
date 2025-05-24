@@ -1,7 +1,6 @@
 import { ActorSystem } from "../../actor/models/actor.model";
-import { ActorDefinition } from "../../actor/models/actor.model";
 import { RiskManagerPort } from "../actors/risk-manager/risk-manager.model";
-import { TakeProfitPort, TakeProfitMessage, TakeProfitState } from "../actors/take-profit-manager/take-profit-manager.model";
+import { TakeProfitPort } from "../actors/take-profit-manager/take-profit-manager.model";
 import { createTakeProfitManagerActorDefinition } from "../actors/take-profit-manager/take-profit-manager.actor";
 import { TradingPort } from "../ports/trading.port";
 import { MarketDataPort } from "../ports/market-data.port";

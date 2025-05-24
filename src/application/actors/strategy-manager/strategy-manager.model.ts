@@ -49,6 +49,7 @@ export type StrategyManagerMessage =
   | { type: 'RUN_OPTIMIZATION'; strategyIds?: string[] }
   | { type: 'ROTATE_STRATEGIES' }
   | { type: 'GET_STRATEGY_SIGNALS'; marketData: MarketData }
+  | { type: 'STRATEGY_SIGNAL'; strategyId: string; signal: StrategySignal; symbol: string; timestamp: number }
   | { type: 'GET_ALL_STRATEGIES' }
   | { type: 'VALIDATE_ORDER'; strategyId: string; signal: StrategySignal; orderParams: OrderParams }
   | { type: 'UPDATE_CONFIG'; config: Partial<StrategyManagerConfig> };

@@ -6,9 +6,8 @@ import {
   StrategyEntry,
   StrategyPerformance
 } from "./strategy-manager.model";
-import { MarketData, OrderParams } from "../../../domain/models/market.model";
 import { getLogger } from "../../../infrastructure/logger";
-import { Strategy, StrategySignal } from "../../../domain/models/strategy.model";
+import { StrategySignal } from "../../../domain/models/strategy.model";
 
 // Create a definition for the strategy manager actor
 export const createStrategyManagerActorDefinition = (
@@ -199,19 +198,19 @@ export const createStrategyManagerActorDefinition = (
         }
         
         case 'consensus': {
-          // In consensus mode, we only generate signals if majority agrees
-          const totalSignals = longSignals.length + shortSignals.length;
-          const longPercentage = longSignals.length / totalSignals;
-          const shortPercentage = shortSignals.length / totalSignals;
-          
-          const consensusThreshold = 0.66; // 2/3 majority
-          
-          if (longPercentage >= consensusThreshold) {
+          // Consensus mode: if there are more signals of one type than the other, go with the majority
+          if (longSignals.length > shortSignals.length) {
             longSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
-          } else if (shortPercentage >= consensusThreshold) {
+          } else if (shortSignals.length > longSignals.length) {
             shortSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+          } else {
+            // Equal number of long and short signals, use performance weighted as tiebreaker
+            const longWeight = longSignals.reduce((sum, s) => sum + s.weight, 0);
+            const shortWeight = shortSignals.reduce((sum, s) => sum + s.weight, 0);
+            
+            const winningSignals = longWeight > shortWeight ? longSignals : shortSignals;
+            winningSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
           }
-          // If no consensus, no signals are generated
           break;
         }
       }
@@ -220,34 +219,27 @@ export const createStrategyManagerActorDefinition = (
     return resolvedSignals;
   };
   
-  // The behavior that defines how the actor reacts to messages
+  // Behavior function to handle messages
   const behavior = async (
     state: StrategyManagerState,
     message: ActorMessage<StrategyManagerMessage>,
     context: ActorContext<StrategyManagerState>
-  ): Promise<{ state: StrategyManagerState }> => {
+  ) => {
     const { payload } = message;
     
     switch (payload.type) {
       case "REGISTER_STRATEGY": {
         const { strategy, markets, initialWeight = 0.5 } = payload;
+        
         const strategyId = strategy.getId();
+        logger.info(`Registering strategy: ${strategyId}`);
         
-        logger.info(`Registering strategy: ${strategy.getName()}`, {
-          strategyId,
-          markets,
-          initialWeight
-        });
-        
-        // Check if strategy already exists
-        if (state.strategies[strategyId]) {
-          logger.warn(`Strategy ${strategyId} already registered`);
-          return { state };
-        }
-        
-        // Check if we have exceeded max active strategies
-        if (state.activeStrategiesCount >= state.config.maxActiveStrategies) {
-          logger.warn(`Cannot register strategy ${strategyId}: maximum active strategies reached`);
+        // Check if we've reached the maximum number of active strategies
+        if (
+          state.activeStrategiesCount >= state.config.maxActiveStrategies &&
+          !state.strategies[strategyId]
+        ) {
+          logger.warn(`Maximum number of active strategies reached (${state.config.maxActiveStrategies})`);
           return { state };
         }
         
@@ -350,14 +342,27 @@ export const createStrategyManagerActorDefinition = (
         // Update last signal for each strategy
         const updatedStrategies = { ...state.strategies };
         
-        for (const { strategyId, signal } of processResults) {
+        processResults.forEach(({ strategyId, signal }) => {
           if (signal && updatedStrategies[strategyId]) {
             updatedStrategies[strategyId] = {
               ...updatedStrategies[strategyId],
               lastSignal: signal
             };
           }
-        }
+        });
+        
+        // Convert to a Map for conflict resolution
+        const signalMap = new Map<string, StrategySignal | null>();
+        processResults.forEach(({ strategyId, signal }) => {
+          signalMap.set(strategyId, signal);
+        });
+        
+        // Resolve conflicts between strategies
+        const resolvedSignals = resolveConflicts(
+          signalMap, 
+          state.strategies, 
+          state.config.conflictResolutionMode
+        );
         
         return { 
           state: {
@@ -371,7 +376,7 @@ export const createStrategyManagerActorDefinition = (
       case "UPDATE_STRATEGY_PERFORMANCE": {
         const { strategyId, performance } = payload;
         
-        logger.debug(`Updating performance for strategy ${strategyId}`, performance);
+        logger.debug(`Updating performance for strategy: ${strategyId}`);
         
         // Check if strategy exists
         if (!state.strategies[strategyId]) {
@@ -380,29 +385,30 @@ export const createStrategyManagerActorDefinition = (
         }
         
         // Update performance
-        const strategy = state.strategies[strategyId];
         const updatedPerformance = {
-          ...strategy.performance,
+          ...state.strategies[strategyId].performance,
           ...performance,
           lastUpdated: Date.now()
         };
         
-        // Calculate new weight based on performance if auto-adjust is enabled
-        const newWeight = state.config.autoAdjustWeights 
-          ? calculateWeight({ ...strategy, performance: updatedPerformance })
-          : strategy.weight;
-        
-        // Update strategy
-        const updatedStrategies = {
-          ...state.strategies,
-          [strategyId]: {
-            ...strategy,
-            performance: updatedPerformance,
-            weight: newWeight
-          }
+        // Update strategy entry
+        const updatedStrategy = {
+          ...state.strategies[strategyId],
+          performance: updatedPerformance
         };
         
-        // Normalize weights if auto-adjust is enabled
+        // Recalculate weight based on new performance if auto-adjust is enabled
+        if (state.config.autoAdjustWeights && updatedStrategy.status === 'active') {
+          updatedStrategy.weight = calculateWeight(updatedStrategy);
+        }
+        
+        // Update strategies map
+        const updatedStrategies = {
+          ...state.strategies,
+          [strategyId]: updatedStrategy
+        };
+        
+        // Normalize weights
         const normalizedStrategies = state.config.autoAdjustWeights 
           ? normalizeWeights(updatedStrategies)
           : updatedStrategies;
@@ -418,11 +424,11 @@ export const createStrategyManagerActorDefinition = (
       case "ADJUST_STRATEGY_WEIGHT": {
         const { strategyId, weight } = payload;
         
-        logger.info(`Manually adjusting weight for strategy ${strategyId} to ${weight}`);
+        logger.info(`Adjusting weight for strategy ${strategyId} to ${weight}`);
         
-        // Check if strategy exists
-        if (!state.strategies[strategyId]) {
-          logger.warn(`Strategy ${strategyId} not found`);
+        // Check if strategy exists and is active
+        if (!state.strategies[strategyId] || state.strategies[strategyId].status !== 'active') {
+          logger.warn(`Strategy ${strategyId} not found or not active`);
           return { state };
         }
         
@@ -436,7 +442,9 @@ export const createStrategyManagerActorDefinition = (
         };
         
         // Normalize weights
-        const normalizedStrategies = normalizeWeights(updatedStrategies);
+        const normalizedStrategies = state.config.autoAdjustWeights 
+          ? normalizeWeights(updatedStrategies)
+          : updatedStrategies;
         
         return { 
           state: {
@@ -574,6 +582,60 @@ export const createStrategyManagerActorDefinition = (
         
         // No state change, just return current state
         return { state };
+      }
+      
+      case "STRATEGY_SIGNAL": {
+        const { strategyId, signal, symbol, timestamp } = payload;
+        
+        logger.info(`Received signal from strategy actor: ${strategyId} - ${signal.type}/${signal.direction} for ${symbol}`);
+        
+        // Vérifier si la stratégie existe
+        if (!state.strategies[strategyId]) {
+          logger.warn(`Strategy ${strategyId} not found, cannot process signal`);
+          return { state };
+        }
+        
+        // Mettre à jour le dernier signal de la stratégie
+        const updatedStrategies = {
+          ...state.strategies,
+          [strategyId]: {
+            ...state.strategies[strategyId],
+            lastSignal: signal
+          }
+        };
+        
+        // Créer une carte de signaux pour la résolution de conflits
+        const signalMap = new Map<string, StrategySignal | null>();
+        signalMap.set(strategyId, signal);
+        
+        // Rechercher d'autres stratégies actives avec des signaux récents sur le même symbole
+        Object.entries(state.strategies).forEach(([id, entry]) => {
+          if (id !== strategyId && entry.status === 'active' && entry.lastSignal) {
+            // Vérifier si cette stratégie concerne le même symbole
+            const stratSymbol = (entry.config.parameters as any).symbol || '';
+            if (stratSymbol === symbol) {
+              // Ajouter le signal existant à la carte pour résolution de conflits
+              signalMap.set(id, entry.lastSignal);
+            }
+          }
+        });
+        
+        // Résoudre les conflits entre stratégies
+        const resolvedSignals = resolveConflicts(
+          signalMap,
+          updatedStrategies,
+          state.config.conflictResolutionMode
+        );
+        
+        // Pour chaque signal résolu, on pourrait déclencher une action supplémentaire ici
+        // Par exemple, envoyer un signal à un gestionnaire d'ordres ou de risques
+        
+        return {
+          state: {
+            ...state,
+            strategies: updatedStrategies
+          }
+        };
       }
       
       case "VALIDATE_ORDER": {

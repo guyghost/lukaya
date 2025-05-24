@@ -2,9 +2,9 @@ import { ActorContext, ActorMessage } from "../../actor/models/actor.model";
 import { createActorSystem } from "../../actor/system";
 import { MarketDataPort } from "../../application/ports/market-data.port";
 import { TradingPort } from "../../application/ports/trading.port";
-import { createStrategyService, StrategyService } from "../../domain/services/strategy.service";
-import { Strategy } from "../../domain/models/strategy.model";
-import { MarketData, Order } from "../../domain/models/market.model";
+import { createStrategyService, StrategyService } from "./strategy.service";
+import { Strategy } from "../models/strategy.model";
+import { MarketData, Order } from "../models/market.model";
 import { getLogger } from "../../infrastructure/logger";
 
 type TradingBotMessage = 
