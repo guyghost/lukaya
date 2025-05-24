@@ -22,7 +22,7 @@ const configSchema = z.object({
     maxFundsPerOrder: z.number().positive().default(0.25), // % maximum des fonds disponibles par ordre
     positionAnalysisInterval: z.number().positive().default(300000), // intervalle d'analyse des positions (ms)
     limitOrderBuffer: z.number().positive().default(0.0005), // buffer pour les ordres limite (0.05%)
-    useLimitOrders: z.boolean().default(true), // utiliser des ordres limite plutôt que des ordres au marché
+    useLimitOrders: z.boolean().default(false), // TOUJOURS utiliser des ordres au marché pour éviter les erreurs DYDX
   }),
   strategies: z
     .array(
@@ -71,7 +71,7 @@ export const loadConfig = (): ConfigType => {
       maxFundsPerOrder: Number(process.env.MAX_FUNDS_PER_ORDER || 0.25),
       positionAnalysisInterval: Number(process.env.POSITION_ANALYSIS_INTERVAL || 300000),
       limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-      useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
+      useLimitOrders: false, // FORCER les ordres MARKET pour éviter les erreurs DYDX
     },
     strategies: process.env.DEFAULT_SYMBOLS
       ? process.env.DEFAULT_SYMBOLS.split(",").flatMap((symbol) => [
@@ -93,7 +93,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+              useLimitOrders: false, // FORCER ordres MARKET pour éviter les erreurs DYDX
             },
           },
           // Stratégie d'analyse des volumes
@@ -115,7 +115,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+              useLimitOrders: false, // FORCER ordres MARKET pour éviter les erreurs DYDX
             },
           },
           // Stratégie des vagues d'Elliott
@@ -135,7 +135,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+              useLimitOrders: false, // FORCER ordres MARKET pour éviter les erreurs DYDX
             },
           },
           // Stratégie des patterns harmoniques
@@ -155,7 +155,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true',
+              useLimitOrders: false, // FORCER ordres MARKET pour éviter les erreurs DYDX
             },
           },
         ])
@@ -177,7 +177,7 @@ export const loadConfig = (): ConfigType => {
               accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || 10000),
               maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || 0.25),
               limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || 0.0005),
-              useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true', // Utiliser false par défaut pour les ordres au marché
+              useLimitOrders: false, // FORCER ordres MARKET pour éviter les erreurs DYDX
             },
           },
         ],

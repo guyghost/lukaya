@@ -7,9 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "bun run src/main.ts",
-    "start": "bun run dist/main.js",
-    "test:rule-3-5-7": "bun run src/examples/test-rule-3-5-7.ts",
-    "test:strategies": "bun run src/examples/test-strategies.ts"
+    "start": "bun run dist/main.js"
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "1.21.3",
