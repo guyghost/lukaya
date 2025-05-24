@@ -15,7 +15,7 @@ import { TakeProfitConfig } from "./application/actors/take-profit-manager/take-
 import { TakeProfitIntegratorConfig } from "./application/integrators/take-profit-integrator";
 import { OrderSide } from "./domain/models/market.model";
 
-const main = async (): Promise<void> => {
+export const main = async (): Promise<void> => {
   // Load configuration
   const config = loadConfig();
   

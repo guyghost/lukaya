@@ -38,6 +38,8 @@ type TradingBotMessage =
   | { type: "REMOVE_STRATEGY"; strategyId: string }
   | { type: "MARKET_DATA"; data: MarketData }
   | { type: "ORDER_PLACED"; order: Order }
+  | { type: "ORDER_REJECTED"; order: OrderParams; reason: string; error?: any }
+  | { type: "ORDER_CANCELLED"; order: Order; reason: string; error?: any }
   | { type: "RISK_ASSESSMENT_RESULT"; orderId: string; result: any }
   | { type: "PERFORMANCE_UPDATE"; metrics: any }
   | { type: "ANALYZE_POSITIONS" }
@@ -49,6 +51,8 @@ interface TradingBotState {
   marketActors: Map<string, ActorAddress>;
   strategyActors: Map<string, ActorAddress>; // Acteurs individuels pour chaque stratégie
   orderHistory: Order[];
+  rejectedOrders: { order: OrderParams; reason: string; error?: any }[];
+  cancelledOrders: { order: Order; reason: string; error?: any }[];
   riskManagerActor: ActorAddress | null;
   strategyManagerActor: ActorAddress | null;
   performanceTrackerActor: ActorAddress | null;
@@ -244,6 +248,8 @@ export const createTradingBotService = (
     marketActors: new Map(),
     strategyActors: new Map(),
     orderHistory: [],
+    rejectedOrders: [],
+    cancelledOrders: [],
     riskManagerActor: null,
     strategyManagerActor: null,
     performanceTrackerActor: null,
@@ -686,7 +692,7 @@ export const createTradingBotService = (
         }
 
         // Process market data through all strategies
-        // This will automatically filter and apply only to strategies configured for this symbol
+        // This will automatically filter and apply to strategies configured for this symbol
         const signals = await state.strategyService.processMarketData(data);
 
         // Handle strategy signals for this particular symbol
@@ -887,6 +893,13 @@ export const createTradingBotService = (
                   order: JSON.stringify(order),
                 },
               );
+              // Notify self of rejected order
+              context.send(context.self, {
+                type: "ORDER_REJECTED",
+                order,
+                reason: (error as Error)?.message || 'Unknown error',
+                error,
+              });
             }
           }
         }
@@ -904,6 +917,27 @@ export const createTradingBotService = (
           state.orderHistory = state.orderHistory.slice(-100);
         }
 
+        return { state };
+      }
+
+      case "ORDER_REJECTED": {
+        const { order, reason, error } = payload;
+        logger.warn(`Order rejected for ${order.symbol}: ${reason}`);
+        state.rejectedOrders.push({ order, reason, error });
+        // Optionally, keep only the last 100 rejected orders
+        if (state.rejectedOrders.length > 100) {
+          state.rejectedOrders = state.rejectedOrders.slice(-100);
+        }
+        return { state };
+      }
+      case "ORDER_CANCELLED": {
+        const { order, reason, error } = payload;
+        logger.info(`Order cancelled: ${order.symbol} (${order.id}): ${reason}`);
+        state.cancelledOrders.push({ order, reason, error });
+        // Optionally, keep only the last 100 cancelled orders
+        if (state.cancelledOrders.length > 100) {
+          state.cancelledOrders = state.cancelledOrders.slice(-100);
+        }
         return { state };
       }
 
