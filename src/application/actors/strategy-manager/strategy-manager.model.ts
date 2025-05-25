@@ -1,6 +1,7 @@
 import { Strategy, StrategyConfig, StrategySignal } from '../../../domain/models/strategy.model';
 import { MarketData, OrderParams } from '../../../domain/models/market.model';
 import { RiskLevel } from '../risk-manager/risk-manager.model';
+import { ActorAddress } from '../../../actor/models/actor.model'; // Added import
 
 export interface StrategyPerformance {
   strategyId: string;
@@ -41,7 +42,7 @@ export interface StrategyManagerConfig {
 export type StrategyManagerMessage =
   | { type: 'REGISTER_STRATEGY'; strategy: Strategy; markets: string[]; initialWeight?: number }
   | { type: 'UNREGISTER_STRATEGY'; strategyId: string }
-  | { type: 'PROCESS_MARKET_DATA'; data: MarketData }
+  | { type: 'PROCESS_MARKET_DATA'; data: MarketData; tradingBotActorAddress: ActorAddress } // Added tradingBotActorAddress
   | { type: 'UPDATE_STRATEGY_PERFORMANCE'; strategyId: string; performance: Partial<StrategyPerformance> }
   | { type: 'ADJUST_STRATEGY_WEIGHT'; strategyId: string; weight: number }
   | { type: 'PAUSE_STRATEGY'; strategyId: string }
@@ -49,7 +50,7 @@ export type StrategyManagerMessage =
   | { type: 'RUN_OPTIMIZATION'; strategyIds?: string[] }
   | { type: 'ROTATE_STRATEGIES' }
   | { type: 'GET_STRATEGY_SIGNALS'; marketData: MarketData }
-  | { type: 'STRATEGY_SIGNAL'; strategyId: string; signal: StrategySignal; symbol: string; timestamp: number }
+  | { type: 'STRATEGY_SIGNAL'; strategyId: string; signal: StrategySignal; symbol: string; timestamp: number; tradingBotActorAddress: ActorAddress } // Added tradingBotActorAddress
   | { type: 'GET_ALL_STRATEGIES' }
   | { type: 'VALIDATE_ORDER'; strategyId: string; signal: StrategySignal; orderParams: OrderParams }
   | { type: 'UPDATE_CONFIG'; config: Partial<StrategyManagerConfig> };
@@ -61,6 +62,7 @@ export interface StrategyManagerState {
   lastOptimization: number;
   lastRotation: number;
   marketDataCache: Record<string, MarketData>;
+  // tradingBotActorAddress?: ActorAddress; // Optional: To send consolidated signals back
 }
 
 export interface StrategyManagerPort {

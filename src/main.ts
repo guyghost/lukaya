@@ -54,16 +54,16 @@ class LukayaTradingApp implements LukayaApp {
         return servicesResult;
       }
 
-      // 3. Configurer les stratégies
-      const strategiesResult = await this.setupStrategies();
-      if (!strategiesResult.success) {
-        return strategiesResult;
-      }
-
-      // 4. Démarrer le bot de trading
+      // 3. Démarrer le bot de trading (Moved BEFORE setupStrategies)
       const botResult = await this.startTradingBot();
       if (!botResult.success) {
         return botResult;
+      }
+
+      // 4. Configurer les stratégies (Moved AFTER startTradingBot)
+      const strategiesResult = await this.setupStrategies();
+      if (!strategiesResult.success) {
+        return strategiesResult;
       }
 
       this.status = ServiceStatus.RUNNING;

@@ -9,7 +9,7 @@ import { Strategy, StrategySignal } from "../../domain/models/strategy.model";
 import { MarketData } from "../../domain/models/market.model";
 
 export type StrategyActorMessage =
-  | { type: "PROCESS_MARKET_DATA"; data: MarketData }
+  | { type: "PROCESS_MARKET_DATA"; data: MarketData; tradingBotActorAddress: ActorAddress } // Added tradingBotActorAddress
   | { type: "UPDATE_CONFIG"; config: Record<string, unknown> }
   | { type: "GET_STATUS" };
 
@@ -64,7 +64,7 @@ export const createStrategyActorDefinition = (
           return { state };
         }
 
-        const { data } = payload;
+        const { data, tradingBotActorAddress } = payload; // Added tradingBotActorAddress
         const symbol = (strategy.getConfig().parameters as any).symbol || '';
         
         // Vérifier que les données correspondent au symbole de la stratégie
@@ -88,7 +88,8 @@ export const createStrategyActorDefinition = (
               strategyId,
               signal,
               symbol: data.symbol,
-              timestamp: Date.now()
+              timestamp: Date.now(),
+              tradingBotActorAddress // Forward tradingBotActorAddress
             });
             
             // Mettre à jour l'état

@@ -199,79 +199,84 @@ export class StrategyFactory {
       if (!config.symbol || typeof config.symbol !== 'string') {
         return result.error(new Error("Symbol requis et doit être une chaîne de caractères"));
       }
-
-      if (!config.positionSize || config.positionSize <= 0) {
-        return result.error(new Error("Position size doit être supérieure à 0"));
+      if (typeof config.positionSize !== 'number' || config.positionSize <= 0) {
+        return result.error(new Error("Position size requis et doit être un nombre positif"));
       }
 
-      // Validations spécifiques par type
+      // Validations spécifiques par type de stratégie
       switch (type) {
         case StrategyType.RSI_DIVERGENCE: {
           const rsiConfig = config as RsiDivergenceConfig;
-          if (!rsiConfig.rsiPeriod || rsiConfig.rsiPeriod < 2) {
-            return result.error(new Error("RSI period doit être >= 2"));
+          if (typeof rsiConfig.rsiPeriod !== 'number' || rsiConfig.rsiPeriod < 2) {
+            return result.error(new Error("RSI period doit être un nombre >= 2"));
           }
-          if (!rsiConfig.overboughtLevel || rsiConfig.overboughtLevel <= 50) {
-            return result.error(new Error("Overbought level doit être > 50"));
+          if (typeof rsiConfig.divergenceWindow !== 'number' || rsiConfig.divergenceWindow <= 0) {
+            return result.error(new Error("Divergence window doit être un nombre positif"));
           }
-          if (!rsiConfig.oversoldLevel || rsiConfig.oversoldLevel >= 50) {
-            return result.error(new Error("Oversold level doit être < 50"));
+          if (typeof rsiConfig.overboughtLevel !== 'number' || rsiConfig.overboughtLevel <= 0 || rsiConfig.overboughtLevel >= 100) {
+            return result.error(new Error("Overbought level doit être un nombre entre 0 et 100"));
+          }
+          if (typeof rsiConfig.oversoldLevel !== 'number' || rsiConfig.oversoldLevel <= 0 || rsiConfig.oversoldLevel >= 100) {
+            return result.error(new Error("Oversold level doit être un nombre entre 0 et 100"));
+          }
+          if (rsiConfig.oversoldLevel >= rsiConfig.overboughtLevel) {
+            return result.error(new Error("Oversold level doit être inférieur à Overbought level"));
           }
           break;
         }
-
         case StrategyType.VOLUME_ANALYSIS: {
           const volumeConfig = config as VolumeAnalysisConfig;
-          if (volumeConfig.volumeMALength && volumeConfig.volumeMALength < 1) {
-            return result.error(new Error("Volume MA length doit être >= 1"));
+          if (typeof volumeConfig.volumeThreshold !== 'number' || volumeConfig.volumeThreshold <= 0) {
+            return result.error(new Error("Volume threshold doit être un nombre positif"));
           }
-          if (volumeConfig.volumeThreshold && volumeConfig.volumeThreshold <= 1) {
-            return result.error(new Error("Volume threshold doit être > 1"));
+          if (typeof volumeConfig.volumeMALength !== 'number' || volumeConfig.volumeMALength <= 0) {
+            return result.error(new Error("Volume MA length doit être un nombre positif"));
           }
-          if (volumeConfig.priceMALength && volumeConfig.priceMALength < 1) {
-            return result.error(new Error("Price MA length doit être >= 1"));
+          if (typeof volumeConfig.priceMALength !== 'number' || volumeConfig.priceMALength <= 0) {
+            return result.error(new Error("Price MA length doit être un nombre positif"));
           }
           break;
         }
-
         case StrategyType.ELLIOTT_WAVE: {
-          const elliotConfig = config as ElliottWaveConfig;
-          if (elliotConfig.waveDetectionLength && elliotConfig.waveDetectionLength < 5) {
-            return result.error(new Error("Wave detection length doit être >= 5"));
+          const elliottConfig = config as ElliottWaveConfig;
+          if (typeof elliottConfig.waveDetectionLength !== 'number' || elliottConfig.waveDetectionLength <= 0) {
+            return result.error(new Error("Wave detection length doit être un nombre positif"));
           }
-          if (elliotConfig.priceSensitivity && elliotConfig.priceSensitivity <= 0) {
-            return result.error(new Error("Price sensitivity doit être > 0"));
+          if (typeof elliottConfig.priceSensitivity !== 'number' || elliottConfig.priceSensitivity <= 0) {
+            return result.error(new Error("Price sensitivity doit être un nombre positif"));
           }
           break;
         }
-
         case StrategyType.HARMONIC_PATTERN: {
           const harmonicConfig = config as HarmonicPatternConfig;
-          if (harmonicConfig.detectionLength && harmonicConfig.detectionLength < 10) {
-            return result.error(new Error("Detection length doit être >= 10"));
+          if (typeof harmonicConfig.detectionLength !== 'number' || harmonicConfig.detectionLength <= 0) {
+            return result.error(new Error("Detection length doit être un nombre positif"));
           }
-          if (harmonicConfig.fibRetracementTolerance && (harmonicConfig.fibRetracementTolerance <= 0 || harmonicConfig.fibRetracementTolerance > 0.1)) {
-            return result.error(new Error("Fib retracement tolerance doit être entre 0 et 0.1"));
+          if (typeof harmonicConfig.fibRetracementTolerance !== 'number' || harmonicConfig.fibRetracementTolerance <= 0 || harmonicConfig.fibRetracementTolerance > 0.1) {
+            return result.error(new Error("Fib retracement tolerance doit être un nombre entre 0 et 0.1"));
           }
           break;
         }
-
         case StrategyType.SIMPLE_MA: {
           const maConfig = config as SimpleMAConfig;
-          if (!maConfig.shortPeriod || maConfig.shortPeriod < 1) {
-            return result.error(new Error("Short period doit être >= 1"));
+          if (typeof maConfig.shortPeriod !== 'number' || maConfig.shortPeriod <= 0) {
+            return result.error(new Error("Short period doit être un nombre positif"));
           }
-          if (!maConfig.longPeriod || maConfig.longPeriod <= maConfig.shortPeriod) {
-            return result.error(new Error("Long period doit être > short period"));
+          if (typeof maConfig.longPeriod !== 'number' || maConfig.longPeriod <= 0) {
+            return result.error(new Error("Long period doit être un nombre positif"));
+          }
+          if (maConfig.shortPeriod >= maConfig.longPeriod) {
+            return result.error(new Error("Short period doit être inférieur à Long period"));
           }
           break;
         }
+        // Ajoutez des cas pour d'autres types de stratégies si nécessaire
       }
 
       return result.success(undefined);
-
     } catch (error) {
-      return result.error(error as Error);
+      this.logger.error("Erreur inattendue lors de la validation de la configuration", error as Error);
+      return result.error(error as Error, "Erreur inattendue de validation");
     }
   }
 

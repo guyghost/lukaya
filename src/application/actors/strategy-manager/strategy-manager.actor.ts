@@ -1,4 +1,4 @@
-import { ActorContext, ActorMessage, ActorDefinition } from "../../../actor/models/actor.model";
+import { ActorContext, ActorMessage, ActorDefinition, ActorAddress } from "../../../actor/models/actor.model"; // Added ActorAddress
 import { 
   StrategyManagerMessage, 
   StrategyManagerState, 
@@ -308,7 +308,7 @@ export const createStrategyManagerActorDefinition = (
       }
       
       case "PROCESS_MARKET_DATA": {
-        const { data } = payload;
+        const { data, tradingBotActorAddress } = payload; // Added tradingBotActorAddress
         
         logger.debug(`Processing market data for ${data.symbol}`);
         
@@ -363,6 +363,24 @@ export const createStrategyManagerActorDefinition = (
           state.strategies, 
           state.config.conflictResolutionMode
         );
+
+        // Send consolidated signal to TradingBotActor
+        if (resolvedSignals.size > 0 && tradingBotActorAddress) {
+          const firstEntry = resolvedSignals.entries().next();
+          if (!firstEntry.done && firstEntry.value) {
+            const [firstStrategyId, firstSignal] = firstEntry.value;
+            if (firstSignal) {
+              context.send(tradingBotActorAddress, {
+                type: "CONSOLIDATED_SIGNAL", // New message type for TradingBotActor
+                payload: { 
+                  strategyId: firstStrategyId, 
+                  signal: firstSignal, 
+                  marketData: data 
+                }
+              });
+            }
+          }
+        }
         
         return { 
           state: {
@@ -585,7 +603,7 @@ export const createStrategyManagerActorDefinition = (
       }
       
       case "STRATEGY_SIGNAL": {
-        const { strategyId, signal, symbol, timestamp } = payload;
+        const { strategyId, signal, symbol, timestamp, tradingBotActorAddress } = payload; // Added tradingBotActorAddress
         
         logger.info(`Received signal from strategy actor: ${strategyId} - ${signal.type}/${signal.direction} for ${symbol}`);
         
@@ -627,8 +645,27 @@ export const createStrategyManagerActorDefinition = (
           state.config.conflictResolutionMode
         );
         
-        // Pour chaque signal résolu, on pourrait déclencher une action supplémentaire ici
-        // Par exemple, envoyer un signal à un gestionnaire d'ordres ou de risques
+        // Send consolidated signal to TradingBotActor
+        if (resolvedSignals.size > 0 && tradingBotActorAddress) {
+          const firstEntry = resolvedSignals.entries().next();
+          if (!firstEntry.done && firstEntry.value) {
+            const [firstStrategyId, firstSignal] = firstEntry.value;
+            const marketData = state.marketDataCache[symbol]; // Get market data from cache
+
+            if (firstSignal && marketData) {
+              context.send(tradingBotActorAddress, {
+                type: "CONSOLIDATED_SIGNAL", // New message type for TradingBotActor
+                payload: { 
+                  strategyId: firstStrategyId, 
+                  signal: firstSignal, 
+                  marketData 
+                }
+              });
+            } else if (firstSignal && !marketData) {
+              logger.warn(`Market data for symbol ${symbol} not found in cache. Cannot send consolidated signal.`);
+            }
+          }
+        }
         
         return {
           state: {
@@ -714,8 +751,8 @@ export const createStrategyManagerActorDefinition = (
   };
   
   return {
-    initialState,
     behavior,
+    initialState,
     supervisorStrategy: { type: "restart" }
   };
 };

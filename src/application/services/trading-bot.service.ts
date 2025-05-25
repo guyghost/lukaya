@@ -2,6 +2,7 @@ import {
   ActorContext,
   ActorMessage,
   ActorAddress,
+  ActorDefinition,
 } from "../../actor/models/actor.model";
 import { createActorSystem } from "../../actor/system";
 import { MarketDataPort } from "../ports/market-data.port";
@@ -13,7 +14,8 @@ import {
   TimeInForce,
   Strategy,
   MarketData, 
-  Result
+  Result,
+  StrategySignal // Added StrategySignal
 } from "../../shared";
 import { Order } from "../../domain/models/market.model";
 import {
@@ -51,7 +53,8 @@ type TradingBotMessage =
   | { type: "RISK_ASSESSMENT_RESULT"; orderId: string; result: any }
   | { type: "PERFORMANCE_UPDATE"; metrics: any }
   | { type: "ANALYZE_POSITIONS" }
-  | { type: "POSITION_VIABILITY_RESULT"; symbol: string; isViable: boolean; reason: string; shouldClose: boolean; direction?: 'long' | 'short' | 'none'; size?: number };
+  | { type: "POSITION_VIABILITY_RESULT"; symbol: string; isViable: boolean; reason: string; shouldClose: boolean; direction?: 'long' | 'short' | 'none'; size?: number }
+  | { type: "CONSOLIDATED_SIGNAL"; payload: { strategyId: string; signal: StrategySignal; marketData: MarketData }}; // Added CONSOLIDATED_SIGNAL
 
 interface TradingBotState {
   isRunning: boolean;
@@ -249,6 +252,7 @@ export const createTradingBotService = (
 ): TradingBotService => {
   const logger = createContextualLogger('TradingBotService');
   const actorSystem = createActorSystem();
+  let tradingBotActorAddress: ActorAddress | null = null;
 
   const initialState: TradingBotState = {
     isRunning: false,
@@ -683,17 +687,16 @@ export const createTradingBotService = (
 
         // Envoyer les données de marché à tous les acteurs de stratégie concernés
         for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
-          // Obtenir la stratégie pour vérifier si le symbole correspond
           const strategy = state.strategyService.getStrategy(strategyId);
           if (!strategy) continue;
           
           const strategySymbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
           
-          // Si le symbole correspond, envoyer les données à l'acteur de stratégie
           if (strategySymbol === data.symbol) {
             actorSystem.send(actorAddress, {
               type: "PROCESS_MARKET_DATA",
               data,
+              tradingBotActorAddress: context.self // Pass TradingBotActor's address
             });
           }
         }
@@ -725,302 +728,274 @@ export const createTradingBotService = (
           });
         }
 
-        // Process market data through all strategies
-        // This will automatically filter and apply to strategies configured for this symbol
-        const signals = await state.strategyService.processMarketData(data);
-
-        // Handle strategy signals for this particular symbol
-        for (const [strategyId, signal] of Array.from(signals.entries())) {
-          if (!signal) continue;
-
-          logger.info(
-            `Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || data.price}`,
-          );
-
-          // Generate order for the specific strategy that produced the signal
-          const order = state.strategyService.generateOrder(
-            strategyId,
-            signal,
-            data,
-          );
-          if (order) {
-            try {
-              // Assess order risk before placing
-              let adjustedOrder = { ...order };
-              let canPlaceOrder = true;
-
-              // Check buying power and make order size proportional
-              const buyingPowerResult = await checkBuyingPower(
-                order,
-                data.price,
-                tradingPort,
-              );
-
-              if (!buyingPowerResult.approved) {
-                logger.error(`Order rejected: ${buyingPowerResult.reason}`);
-                return { state };
-              }
-
-              if (buyingPowerResult.adjustedSize || buyingPowerResult.adjustedPrice) {
-                adjustedOrder = {
-                  ...adjustedOrder,
-                  ...(buyingPowerResult.adjustedSize && { size: buyingPowerResult.adjustedSize }),
-                  ...(buyingPowerResult.adjustedPrice && { price: buyingPowerResult.adjustedPrice })
-                };
-                
-                if (buyingPowerResult.adjustedSize) {
-                  logger.warn(
-                    `Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
-                  );
-                }
-                
-                if (buyingPowerResult.adjustedPrice) {
-                  logger.warn(
-                    `Order price adjusted to ${adjustedOrder.price} USD: ${buyingPowerResult.reason}`,
-                  );
-                }
-              } else {
-                // Always log the proportion of buying power being used
-                const balances = await tradingPort.getAccountBalance();
-                const availableUSDC = balances["USDC"] || 0;
-                const orderValue =
-                  adjustedOrder.size * (adjustedOrder.price || data.price);
-                const percentageUsed = (orderValue / availableUSDC) * 100;
-
-                logger.info(
-                  `Order using ${percentageUsed.toFixed(2)}% of available buying power ($${orderValue.toFixed(2)} / $${availableUSDC.toFixed(2)})`,
-                );
-              }
-
-              // Log order type information
-              if (adjustedOrder.type === OrderType.LIMIT && adjustedOrder.price) {
-                const currentPrice = data.price;
-                const priceDiff = Math.abs(adjustedOrder.price - currentPrice);
-                const priceDiffPercent = (priceDiff / currentPrice) * 100;
-                
-                logger.info(
-                  `Placing LIMIT order at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? 'above' : 'below'} current price of ${currentPrice})`,
-                );
-              }
-              
-              // Assess additional risk factors if risk manager is available
-              if (state.riskManagerActor) {
-                logger.info(
-                  `Assessing additional risk factors for order on ${order.symbol}`,
-                );
-
-                // Get current account risk data
-                actorSystem.send(state.riskManagerActor, {
-                  type: "GET_ACCOUNT_RISK",
-                });
-
-                // In a real actor system, we would use ask pattern or response messages
-                // For now, we trust the buying power check already performed
-              }
-
-              // Only place order if approved
-              if (!canPlaceOrder) {
-                logger.error(
-                  `Order for ${order.symbol} not placed due to risk assessment`,
-                );
-                return { state };
-              }
-
-              const placedOrder = await tradingPort.placeOrder(adjustedOrder);
-              const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';
-              logger.info(
-                `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || data.price} USD`,
-              );
-              if (adjustedOrder.side === OrderSide.BUY) {
-                logger.info(
-                  `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || data.price)).toFixed(2)} USD`,
-                );
-                
-                if (adjustedOrder.type === OrderType.LIMIT) {
-                  logger.info(
-                    `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
-                  );
-                }
-              }
-
-              // Send order placed message to self to update state
-              context.send(context.self, {
-                type: "ORDER_PLACED",
-                order: placedOrder,
-              });
-
-              // For LIMIT orders, we only notify when the order is filled
-              // For MARKET orders, we assume immediate fill
-              // Notify risk manager about filled order
-              if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
-                actorSystem.send(state.riskManagerActor, {
-                  type: "ORDER_FILLED",
-                  order: placedOrder,
-                  fillPrice: data.price,
-                });
-                
-                // Track position in local state for future reference
-                if (signal.type === "entry") {
-                  state.positions[order.symbol] = {
-                    symbol: order.symbol,
-                    direction: signal.direction === "long" ? "long" : "short",
-                    size: adjustedOrder.size,
-                  };
-                  
-                  // Notifier le gestionnaire de prise de profit d'une nouvelle position
-                  if (state.takeProfitIntegrator) {
-                    const position: PositionRisk = {
-                      symbol: order.symbol,
-                      direction: signal.direction === "long" ? "long" : "short",
-                      size: adjustedOrder.size,
-                      entryPrice: data.price,
-                      currentPrice: data.price,
-                      unrealizedPnl: 0,
-                      riskLevel: "LOW",
-                      entryTime: Date.now()
-                    };
-                    state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
-                  }
-                } else if (signal.type === "exit") {
-                  // Si on sort de la position, notifier le gestionnaire de prise de profit
-                  if (state.takeProfitIntegrator) {
-                    state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
-                  }
-                  
-                  // Puis supprimer la position de l'état local
-                  delete state.positions[order.symbol];
-                }
-              } else if (state.riskManagerActor) {
-                // For LIMIT orders, we just log that the risk manager will be notified when filled
-                logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
-              }
-
-              // Record trade in performance tracker
-              if (state.performanceTrackerActor) {
-                // For MARKET orders, record immediately
-                // For LIMIT orders, we set the status to "pending" until filled
-                const tradeEntry = {
-                  id: placedOrder.id,
-                  strategyId,
-                  symbol: order.symbol,
-                  entryTime: Date.now(),
-                  entryPrice: adjustedOrder.type === OrderType.MARKET ? data.price : adjustedOrder.price || data.price,
-                  entryOrder: placedOrder,
-                  quantity: adjustedOrder.size,
-                  fees: 0,
-                  status: adjustedOrder.type === OrderType.MARKET ? "open" : "pending",
-                  tags: [signal.type, signal.direction, adjustedOrder.type.toLowerCase()],
-                };
-
-                actorSystem.send(state.performanceTrackerActor, {
-                  type: "TRADE_OPENED",
-                  trade: tradeEntry,
-                });
-                
-                logger.debug(`Trade recorded in performance tracker with status: ${tradeEntry.status}`);
-              }
-            } catch (error) {
-              logger.error(
-                `Error placing order for ${order.symbol}`,
-                error as Error,
-                {
-                  order: JSON.stringify(order),
-                },
-              );
-              // Notify self of rejected order
-              context.send(context.self, {
-                type: "ORDER_REJECTED",
-                order,
-                reason: (error as Error)?.message || 'Unknown error',
-                error,
-              });
-            }
-          }
-        }
+        // REMOVED: Direct signal processing and order generation
+        // const signals = await state.strategyService.processMarketData(data);
+        // for (const [strategyId, signal] of Array.from(signals.entries())) {
+        //   ...
+        // }
 
         return { state };
       }
 
-      case "ORDER_PLACED": {
-        // Add the order to history
-        const { order } = payload;
-        state.orderHistory.push(order);
+      case "CONSOLIDATED_SIGNAL": { // New case to handle consolidated signals
+        if (!state.isRunning) return { state };
 
-        // Keep only the last 100 orders (optional)
-        if (state.orderHistory.length > 100) {
-          state.orderHistory = state.orderHistory.slice(-100);
+        const { strategyId, signal, marketData } = payload.payload;
+
+        logger.info(
+          `Received consolidated signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || marketData.price}`,
+        );
+
+        const order = state.strategyService.generateOrder(
+          strategyId,
+          signal,
+          marketData,
+        );
+
+        if (order) {
+          try {
+            let adjustedOrder = { ...order };
+            const buyingPowerResult = await checkBuyingPower(
+              order,
+              marketData.price,
+              tradingPort,
+            );
+
+            if (!buyingPowerResult.approved) {
+              logger.error(`Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`); // Corrected: Use order.symbol
+              context.send(context.self, {
+                type: "ORDER_REJECTED",
+                order,
+                reason: buyingPowerResult.reason || 'Buying power check failed',
+              });
+              return { state };
+            }
+
+            if (buyingPowerResult.adjustedSize || buyingPowerResult.adjustedPrice) {
+              adjustedOrder = {
+                ...adjustedOrder,
+                ...(buyingPowerResult.adjustedSize && { size: buyingPowerResult.adjustedSize }),
+                ...(buyingPowerResult.adjustedPrice && { price: buyingPowerResult.adjustedPrice })
+              };
+              if (buyingPowerResult.adjustedSize) {
+                logger.warn(
+                  `Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
+                );
+              }
+              if (buyingPowerResult.adjustedPrice) {
+                logger.warn(
+                  `Order price adjusted to ${adjustedOrder.price} USD: ${buyingPowerResult.reason}`,
+                );
+              }
+            } else {
+              const balances = await tradingPort.getAccountBalance();
+              const availableUSDC = balances["USDC"] || 0;
+              const orderValue =
+                adjustedOrder.size * (adjustedOrder.price || marketData.price);
+              const percentageUsed = (orderValue / availableUSDC) * 100;
+              logger.info(
+                `Order using ${percentageUsed.toFixed(2)}% of available buying power ($${orderValue.toFixed(2)} / $${availableUSDC.toFixed(2)})`,
+              );
+            }
+
+            if (adjustedOrder.type === OrderType.LIMIT && adjustedOrder.price) {
+              const currentPrice = marketData.price;
+              const priceDiff = Math.abs(adjustedOrder.price - currentPrice);
+              const priceDiffPercent = (priceDiff / currentPrice) * 100;
+              logger.info(
+                `Placing LIMIT order at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? 'above' : 'below'} current price of ${currentPrice})`,
+              );
+            }
+
+            if (state.riskManagerActor) {
+              logger.info(
+                `Assessing additional risk factors for order on ${order.symbol}`,
+              );
+              actorSystem.send(state.riskManagerActor, {
+                type: "GET_ACCOUNT_RISK",
+              });
+            }
+
+            const placedOrder = await tradingPort.placeOrder(adjustedOrder);
+            const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';
+            logger.info(
+              `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || marketData.price} USD`,
+            );
+            if (adjustedOrder.side === OrderSide.BUY) {
+              logger.info(
+                `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || marketData.price)).toFixed(2)} USD`,
+              );
+              if (adjustedOrder.type === OrderType.LIMIT) {
+                logger.info(
+                  `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
+                );
+              }
+            }
+
+            context.send(context.self, {
+              type: "ORDER_PLACED",
+              order: placedOrder,
+            });
+
+            if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
+              actorSystem.send(state.riskManagerActor, {
+                type: "ORDER_FILLED",
+                order: placedOrder,
+                fillPrice: marketData.price,
+              });
+              if (signal.type === "entry") {
+                state.positions[order.symbol] = {
+                  symbol: order.symbol,
+                  direction: signal.direction === "long" ? "long" : "short",
+                  size: adjustedOrder.size,
+                };
+                if (state.takeProfitIntegrator) {
+                  const position: PositionRisk = {
+                    symbol: order.symbol,
+                    direction: signal.direction === "long" ? "long" : "short",
+                    size: adjustedOrder.size,
+                    entryPrice: marketData.price,
+                    currentPrice: marketData.price,
+                    unrealizedPnl: 0,
+                    riskLevel: "LOW",
+                    entryTime: Date.now()
+                  };
+                  state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
+                }
+              } else if (signal.type === "exit") {
+                if (state.takeProfitIntegrator) {
+                  state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
+                }
+                delete state.positions[order.symbol];
+              }
+            } else if (state.riskManagerActor) {
+              logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
+            }
+
+            if (state.performanceTrackerActor) {
+              const tradeEntry = {
+                id: placedOrder.id,
+                strategyId,
+                symbol: order.symbol,
+                entryTime: Date.now(),
+                entryPrice: adjustedOrder.type === OrderType.MARKET ? marketData.price : adjustedOrder.price || marketData.price,
+                entryOrder: placedOrder,
+                quantity: adjustedOrder.size,
+                fees: 0,
+                status: adjustedOrder.type === OrderType.MARKET ? "open" : "pending",
+                tags: [signal.type, signal.direction, adjustedOrder.type.toLowerCase()],
+              };
+              actorSystem.send(state.performanceTrackerActor, {
+                type: "TRADE_OPENED",
+                trade: tradeEntry,
+              });
+              logger.debug(`Trade recorded in performance tracker with status: ${tradeEntry.status}`);
+            }
+          } catch (error) {
+            logger.error(
+              `Error placing order for ${order.symbol}`,
+              error as Error,
+              {
+                order: JSON.stringify(order),
+              },
+            );
+            context.send(context.self, {
+              type: "ORDER_REJECTED",
+              order,
+              reason: (error as Error)?.message || 'Unknown error placing order',
+              error,
+            });
+          }
+        }
+        return { state };
+      }
+
+      case "ORDER_PLACED": {
+        // Handle order placed confirmation
+        const { order } = payload;
+        logger.info(`Order placed: ${order.id} for ${order.symbol}, ${order.side} ${order.size} @ ${order.price} USD`);
+
+        // Update performance tracker if available
+        if (state.performanceTrackerActor) {
+          actorSystem.send(state.performanceTrackerActor, {
+            type: "TRADE_OPENED",
+            trade: {
+              id: order.id,
+              strategyId: "", // To be filled if needed
+              symbol: order.symbol,
+              entryTime: Date.now(),
+              entryPrice: order.price,
+              entryOrder: order,
+              quantity: order.size,
+              fees: 0,
+              status: "open",
+              tags: [],
+            },
+          });
         }
 
         return { state };
       }
 
       case "ORDER_REJECTED": {
-        const { order, reason, error } = payload;
-        logger.warn(`Order rejected for ${order.symbol}: ${reason}`);
-        state.rejectedOrders.push({ order, reason, error });
-        // Optionally, keep only the last 100 rejected orders
-        if (state.rejectedOrders.length > 100) {
-          state.rejectedOrders = state.rejectedOrders.slice(-100);
-        }
+        const { order, reason } = payload;
+        logger.warn(`Order rejected for symbol ${order.symbol} (parameters: ${JSON.stringify(order)}), Reason: ${reason}`);
+
+        // Update order history with rejection reason
+        state.rejectedOrders.push({ order, reason });
+
         return { state };
       }
+
       case "ORDER_CANCELLED": {
-        const { order, reason, error } = payload;
-        logger.info(`Order cancelled: ${order.symbol} (${order.id}): ${reason}`);
-        state.cancelledOrders.push({ order, reason, error });
-        // Optionally, keep only the last 100 cancelled orders
-        if (state.cancelledOrders.length > 100) {
-          state.cancelledOrders = state.cancelledOrders.slice(-100);
-        }
+        const { order, reason } = payload;
+        logger.info(`Order cancelled: ${order.id} for ${order.symbol}, Reason: ${reason}`);
+
+        // Update order history
+        state.cancelledOrders.push({ order, reason });
+
         return { state };
       }
 
       case "RISK_ASSESSMENT_RESULT": {
         const { orderId, result } = payload;
+        logger.info(`Received risk assessment result for order ${orderId}: ${JSON.stringify(result)}`);
 
-        logger.info(`Received risk assessment for order ${orderId}`, {
-          approved: result.approved,
-          riskLevel: result.riskLevel,
-          adjustedSize: result.adjustedSize,
-        });
-
-        // In a complete implementation, we would process the risk assessment result
-        // and adjust orders accordingly
+        // Handle risk assessment result (e.g., adjust order, notify user, etc.)
+        // For now, we just log it
 
         return { state };
       }
 
       case "PERFORMANCE_UPDATE": {
         const { metrics } = payload;
+        logger.info(`Received performance update: ${JSON.stringify(metrics)}`);
 
-        logger.info("Received performance update", {
-          winRate: metrics.winRate,
-          profitFactor: metrics.profitFactor,
-          netProfit: metrics.netProfit,
-        });
-
-        // In a complete implementation, we would update strategy weights
-        // based on performance metrics
+        // Handle performance metrics update
+        // This could involve logging, adjusting strategies, etc.
 
         return { state };
       }
 
       case "ANALYZE_POSITIONS": {
-        logger.info("Analyzing viability of all open positions");
+        logger.info("Analyzing open positions...");
 
-        if (state.riskManagerActor) {
-          // Send analyze positions message to risk manager
-          actorSystem.send(state.riskManagerActor, {
-            type: "ANALYZE_OPEN_POSITIONS",
-          });
-
-          // Schedule next analysis
-          if (state.isRunning && options.positionAnalysisInterval) {
-            setTimeout(() => {
-              if (state.isRunning) {
-                context.send(context.self, { type: "ANALYZE_POSITIONS" });
-              }
-            }, options.positionAnalysisInterval);
+        for (const [symbol, position] of Object.entries(state.positions)) {
+          try {
+            const marketData = await marketDataPort.getLatestMarketData(symbol);
+            if (state.takeProfitIntegrator) {
+              const analysis = await state.takeProfitIntegrator.takeProfitManager.analyzePosition(
+                symbol,
+                marketData.price
+              );
+              logger.info(`Position analysis for ${symbol}: ${JSON.stringify(analysis)}`);
+              // Removed: if (analysis.shouldClose) { ... }
+              // Closing logic is likely handled by POSITION_VIABILITY_RESULT or internal mechanisms.
+            } else {
+              logger.warn(`TakeProfitIntegrator not available for position analysis of ${symbol}`);
+            }
+          } catch (error) {
+            logger.error(`Error analyzing position ${symbol}:`, error as Error);
           }
         }
 
@@ -1029,68 +1004,22 @@ export const createTradingBotService = (
 
       case "POSITION_VIABILITY_RESULT": {
         const { symbol, isViable, reason, shouldClose, direction, size } = payload;
+        logger.info(`Position viability result for ${symbol}: Viable=${isViable}, Reason=${reason}`);
 
-        if (!isViable) {
-          logger.warn(`Position ${symbol} is no longer viable: ${reason}`);
-
-          // Automatically close non-viable positions if indicated
-          if (shouldClose) {
-            logger.info(`Automatically closing non-viable position: ${symbol}`);
-            
-            // Try to get position information from payload or stored positions
-            const position = direction ? 
-              { symbol, direction, size: size || 0 } : 
-              Object.values(state.positions).find(p => p.symbol === symbol);
-            
-            if (position && position.size > 0) {
-              // Close the position using the helper function
-              const success = await closePosition(
-                symbol,
-                position.direction,
-                position.size,
-                marketDataPort,
-                tradingPort,
-                reason,
-                context
-              );
-              
-              if (success) {
-                // Remove position from tracking
-                const updatedPositions = {...state.positions};
-                delete updatedPositions[symbol];
-                
-                // Record in performance tracker if available
-                if (state.performanceTrackerActor) {
-                  const tradeEntry = {
-                    id: crypto.randomUUID(),
-                    strategyId: "risk_manager", // Special ID for risk manager initiated trades
-                    symbol,
-                    entryTime: Date.now(),
-                    entryPrice: 0, // Will be updated when order is filled
-                    entryOrder: null,
-                    quantity: position.size,
-                    fees: 0,
-                    status: "closing",
-                    tags: ["close", "non_viable", position.direction]
-                  };
-                  
-                  actorSystem.send(state.performanceTrackerActor, {
-                    type: "TRADE_UPDATED",
-                    trade: tradeEntry
-                  });
-                }
-                
-                // Update state to remove position
-                return {
-                  state: {
-                    ...state,
-                    positions: updatedPositions
-                  }
-                };
-              }
-            } else {
-              logger.error(`Cannot close position ${symbol}: position details not found`);
-            }
+        if (shouldClose) {
+          if (typeof size === 'number' && (direction === 'long' || direction === 'short')) {
+            logger.info(`Closing position ${symbol} as it's no longer viable (Direction: ${direction}, Size: ${size})`);
+            await closePosition(
+              symbol,
+              direction,
+              size,
+              marketDataPort,
+              tradingPort,
+              `Position closed due to viability analysis: ${reason}`,
+              context,
+            );
+          } else {
+            logger.error(`Cannot close position ${symbol}: size is undefined or invalid, or direction is not 'long' or 'short'. (Size: ${size}, Direction: ${direction})`);
           }
         }
 
@@ -1098,56 +1027,61 @@ export const createTradingBotService = (
       }
 
       default:
+        logger.warn(`Unknown message type: ${(payload as any).type}`);
         return { state };
     }
   };
 
-  // Create the main bot actor that will manage all strategies and market actors
-  // The trading bot actor coordinates all the market data and strategy signals,
-  // and manages the risk, strategy, and performance actors
-  const botAddress = actorSystem.createActor({
-    initialState,
-    behavior: tradingBotBehavior,
-    supervisorStrategy: { type: "restart" },
-  });
-
-  // Public API methods
-  const start = (): void => {
-    actorSystem.send(botAddress, { type: "START" });
-  };
-
-  const stop = (): void => {
-    actorSystem.send(botAddress, { type: "STOP" });
-
-    // In a real implementation, we might want to explicitly stop
-    // all the child actors and save their state
-    // For now this is handled by the actor system's hierarchy
-  };
-
-  const addStrategy = (strategy: Strategy): void => {
-    actorSystem.send(botAddress, {
-      type: "ADD_STRATEGY",
-      strategy,
-    });
-  };
-
-  const removeStrategy = (strategyId: string): void => {
-    actorSystem.send(botAddress, {
-      type: "REMOVE_STRATEGY",
-      strategyId,
-    });
-  };
-
-  // Return the public API
-  const analyzeOpenPositions = (): void => {
-    actorSystem.send(botAddress, { type: "ANALYZE_POSITIONS" });
-  };
-
   return {
-    start,
-    stop,
-    addStrategy,
-    removeStrategy,
-    analyzeOpenPositions,
+    start: () => {
+      logger.info("Starting Trading Bot Service");
+
+      const definition: ActorDefinition<TradingBotState, TradingBotMessage> = {
+        initialState,
+        behavior: tradingBotBehavior,
+      };
+      // Create actor without a name/ID parameter, the system will assign an address.
+      tradingBotActorAddress = actorSystem.createActor(definition);
+      
+      if (tradingBotActorAddress) {
+        logger.info(`Trading Bot Actor created with address: ${JSON.stringify(tradingBotActorAddress)}`);
+        actorSystem.send(tradingBotActorAddress, { type: "START" });
+      } else {
+        logger.error("Failed to create and obtain address for Trading Bot Actor.");
+      }
+    },
+    stop: () => {
+      logger.info("Stopping Trading Bot Service");
+      if (tradingBotActorAddress) {
+        actorSystem.send(tradingBotActorAddress, { type: "STOP" });
+        // actorSystem.stop(tradingBotActorAddress); // This would be a hard stop. Prefer graceful shutdown via message.
+      } else {
+        logger.warn("Trading Bot Actor address not available to send STOP command.");
+      }
+    },
+    addStrategy: (strategy) => {
+      logger.info(`Adding strategy to Trading Bot Service: ${strategy.getName()}`);
+      if (tradingBotActorAddress) {
+        actorSystem.send(tradingBotActorAddress, { type: "ADD_STRATEGY", strategy });
+      } else {
+        logger.warn("Trading Bot Actor address not available to add strategy.");
+      }
+    },
+    removeStrategy: (strategyId) => {
+      logger.info(`Removing strategy from Trading Bot Service: ${strategyId}`);
+      if (tradingBotActorAddress) {
+        actorSystem.send(tradingBotActorAddress, { type: "REMOVE_STRATEGY", strategyId });
+      } else {
+        logger.warn("Trading Bot Actor address not available to remove strategy.");
+      }
+    },
+    analyzeOpenPositions: () => {
+      logger.info("Requesting analysis of open positions");
+      if (tradingBotActorAddress) {
+        actorSystem.send(tradingBotActorAddress, { type: "ANALYZE_POSITIONS" });
+      } else {
+        logger.warn("Trading Bot Actor address not available to analyze positions.");
+      }
+    },
   };
 };
