@@ -227,6 +227,11 @@ class LukayaTradingApp implements LukayaApp {
    * Convertit un type de stratégie string en enum StrategyType
    */
   private getStrategyType(typeString: string): StrategyType | null {
+    if (!typeString) {
+      this.logger.error("Type de stratégie non spécifié");
+      return null;
+    }
+    
     const typeMap: Record<string, StrategyType> = {
       'rsi-divergence': StrategyType.RSI_DIVERGENCE,
       'volume-analysis': StrategyType.VOLUME_ANALYSIS,
@@ -235,7 +240,13 @@ class LukayaTradingApp implements LukayaApp {
       'simple-ma': StrategyType.SIMPLE_MA,
     };
 
-    return typeMap[typeString] || null;
+    const strategyType = typeMap[typeString];
+    if (!strategyType) {
+      this.logger.error(`Type de stratégie non supporté: ${typeString}. Types supportés: ${Object.keys(typeMap).join(', ')}`);
+      return null;
+    }
+
+    return strategyType;
   }
 
   /**
@@ -262,6 +273,13 @@ class LukayaTradingApp implements LukayaApp {
             continue;
           }
 
+          // Vérifier que les paramètres sont présents
+          if (!strategyConfig.parameters) {
+            this.logger.error(`Paramètres manquants pour la stratégie: ${strategyConfig.type}`);
+            continue;
+          }
+
+          // Créer la stratégie avec le type enum
           const strategy = await strategyFactory.createStrategy(
             strategyType,
             strategyConfig.parameters

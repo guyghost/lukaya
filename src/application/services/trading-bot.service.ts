@@ -350,6 +350,27 @@ export const createTradingBotService = (
             strategyManagerDefinition,
           );
           logger.info("Created strategy manager actor");
+          state.strategyManagerActor = strategyManagerActor;
+          
+          // Créer les acteurs de stratégie pour les stratégies qui ont été ajoutées avant
+          // l'initialisation du gestionnaire de stratégies
+          for (const [strategyId, strategy] of Object.entries(state.strategyService.getAllStrategies())) {
+            try {
+              if (!state.strategyActors.has(strategyId)) {
+                logger.info(`Creating previously pending strategy actor for: ${strategyId}`);
+                const strategyActorDef = createStrategyActorDefinition(
+                  strategy,
+                  strategyManagerActor
+                );
+                
+                const strategyActorAddress = actorSystem.createActor(strategyActorDef);
+                state.strategyActors.set(strategyId, strategyActorAddress);
+                logger.debug(`Created strategy actor for previously pending strategy: ${strategyId}`);
+              }
+            } catch (error) {
+              logger.error(`Error creating strategy actor for: ${strategyId}`, error as Error);
+            }
+          }
         }
 
         // Create performance tracker if not exists
@@ -564,24 +585,28 @@ export const createTradingBotService = (
         }
         
         // Créer un acteur de stratégie pour cette stratégie
-        if (state.strategyManagerActor) {
+        try {
           const strategyId = strategy.getId();
           logger.info(`Creating dedicated actor for strategy: ${strategyId}`);
           
-          // Créer l'acteur de stratégie qui va communiquer avec le Strategy Manager
-          const strategyActorDef = createStrategyActorDefinition(
-            strategy,
-            state.strategyManagerActor
-          );
-          
-          const strategyActorAddress = actorSystem.createActor(strategyActorDef);
-          
-          // Stocker la référence de l'acteur de stratégie
-          state.strategyActors.set(strategyId, strategyActorAddress);
-          
-          logger.debug(`Created strategy actor for strategy: ${strategyId}`);
-        } else {
-          logger.warn(`Cannot create strategy actor: Strategy manager not initialized`);
+          if (state.strategyManagerActor) {
+            // Créer l'acteur de stratégie qui va communiquer avec le Strategy Manager
+            const strategyActorDef = createStrategyActorDefinition(
+              strategy,
+              state.strategyManagerActor
+            );
+            
+            const strategyActorAddress = actorSystem.createActor(strategyActorDef);
+            
+            // Stocker la référence de l'acteur de stratégie
+            state.strategyActors.set(strategyId, strategyActorAddress);
+            
+            logger.debug(`Created strategy actor for strategy: ${strategyId}`);
+          } else {
+            logger.warn(`Strategy manager not initialized yet, will create strategy actor later for: ${strategyId}`);
+          }
+        } catch (error) {
+          logger.error(`Error creating strategy actor: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         return { state };
