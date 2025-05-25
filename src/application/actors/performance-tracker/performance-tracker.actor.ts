@@ -11,13 +11,13 @@ import {
   ReportType
 } from "./performance-tracker.model";
 import { StrategyPerformance } from "../strategy-manager/strategy-manager.model";
-import { getLogger } from "../../../infrastructure/logger";
+import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 
 // Create a definition for the performance tracker actor
 export const createPerformanceTrackerActorDefinition = (
   config?: Partial<PerformanceTrackerConfig>
 ): ActorDefinition<PerformanceTrackerState, PerformanceTrackerMessage> => {
-  const logger = getLogger();
+  const logger = createContextualLogger("PerformanceTracker");
   
   // Default configuration
   const defaultConfig: PerformanceTrackerConfig = {

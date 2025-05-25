@@ -3,14 +3,14 @@ import {
   OrderParams,
   OrderSide,
   OrderType,
-} from "../../domain/models/market.model";
-import {
   Strategy,
   StrategyConfig,
   StrategySignal,
-} from "../../domain/models/strategy.model";
+  Result
+} from "../../shared";
 import { RSI } from 'technicalindicators';
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { result } from "../../shared/utils";
 
 interface RsiDivergenceConfig {
   rsiPeriod: number;
@@ -42,7 +42,7 @@ interface RsiDivergenceState {
 }
 
 export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strategy => {
-  const logger = getLogger();
+  const logger = createContextualLogger('RsiDivergenceStrategy');
   
   // État initial de la stratégie
   const state: RsiDivergenceState = {
@@ -147,24 +147,42 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     }),
 
     processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
-      if (data.symbol !== config.symbol) return null;
-      
-      // Ajouter le prix actuel à l'historique
-      state.priceHistory.push(data.price);
-      
-      // S'assurer que nous avons suffisamment de données pour calculer le RSI
-      if (state.priceHistory.length > config.rsiPeriod) {
-        // Calculer le RSI
-        const rsiInput = {
-          values: state.priceHistory,
-          period: config.rsiPeriod
-        };
-        const rsiResult = RSI.calculate(rsiInput);
+      try {
+        if (data.symbol !== config.symbol) return null;
         
-        // Ajouter le RSI actuel à l'historique
-        if (rsiResult.length > 0) {
-          const currentRsi = rsiResult[rsiResult.length - 1];
-          state.rsiHistory.push(currentRsi);
+        // Validation des données
+        if (!data.price || data.price <= 0) {
+          logger.warn("Prix de marché invalide reçu", { symbol: data.symbol, price: data.price });
+          return null;
+        }
+        
+        // Ajouter le prix actuel à l'historique
+        state.priceHistory.push(data.price);
+        
+        // Garder un historique de taille raisonnable
+        const maxHistorySize = config.rsiPeriod * 10;
+        if (state.priceHistory.length > maxHistorySize) {
+          state.priceHistory = state.priceHistory.slice(-maxHistorySize);
+        }
+        
+        // S'assurer que nous avons suffisamment de données pour calculer le RSI
+        if (state.priceHistory.length > config.rsiPeriod) {
+          // Calculer le RSI
+          const rsiInput = {
+            values: state.priceHistory,
+            period: config.rsiPeriod
+          };
+          const rsiResult = RSI.calculate(rsiInput);
+          
+          // Ajouter le RSI actuel à l'historique
+          if (rsiResult.length > 0) {
+            const currentRsi = rsiResult[rsiResult.length - 1];
+            state.rsiHistory.push(currentRsi);
+            
+            // Garder un historique RSI de taille raisonnable
+            if (state.rsiHistory.length > maxHistorySize) {
+              state.rsiHistory = state.rsiHistory.slice(-maxHistorySize);
+            }
           
           // Trouver les pivots sur les données de prix et de RSI
           const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
@@ -222,6 +240,11 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             };
           }
         }
+      } else {
+        logger.debug("Insufficient data for RSI calculation", {
+          currentLength: state.priceHistory.length,
+          requiredLength: config.rsiPeriod
+        });
       }
       
       // Limiter la taille de l'historique pour économiser la mémoire
@@ -233,7 +256,16 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       }
       
       return null;
-    },
+      
+    } catch (error) {
+      logger.error("Error processing market data in RSI Divergence strategy", error as Error, {
+        symbol: data.symbol,
+        price: data.price,
+        historyLength: state.priceHistory.length
+      });
+      return null;
+    }
+  },
 
     generateOrder: (signal: StrategySignal, marketData: MarketData): OrderParams | null => {
       if (marketData.symbol !== config.symbol) return null;

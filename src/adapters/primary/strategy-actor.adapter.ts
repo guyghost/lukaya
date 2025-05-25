@@ -4,7 +4,7 @@ import {
   ActorAddress,
   ActorDefinition,
 } from "../../actor/models/actor.model";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 import { Strategy, StrategySignal } from "../../domain/models/strategy.model";
 import { MarketData } from "../../domain/models/market.model";
 
@@ -31,9 +31,9 @@ export const createStrategyActorDefinition = (
   strategy: Strategy,
   strategyManagerAddress: ActorAddress | null = null,
 ): ActorDefinition<StrategyActorState, StrategyActorMessage> => {
-  const logger = getLogger();
   const strategyId = strategy.getId();
   const strategyName = strategy.getName();
+  const logger = createContextualLogger(`StrategyActor-${strategyId}`);
 
   // État initial
   const initialState: StrategyActorState = {

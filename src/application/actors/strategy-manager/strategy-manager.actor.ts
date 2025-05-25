@@ -6,14 +6,14 @@ import {
   StrategyEntry,
   StrategyPerformance
 } from "./strategy-manager.model";
-import { getLogger } from "../../../infrastructure/logger";
+import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 import { StrategySignal } from "../../../domain/models/strategy.model";
 
 // Create a definition for the strategy manager actor
 export const createStrategyManagerActorDefinition = (
   config?: Partial<StrategyManagerConfig>
 ): ActorDefinition<StrategyManagerState, StrategyManagerMessage> => {
-  const logger = getLogger();
+  const logger = createContextualLogger("StrategyManager");
   
   // Default configuration
   const defaultConfig: StrategyManagerConfig = {

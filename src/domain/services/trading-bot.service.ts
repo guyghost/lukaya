@@ -5,7 +5,7 @@ import { TradingPort } from "../../application/ports/trading.port";
 import { createStrategyService, StrategyService } from "./strategy.service";
 import { Strategy } from "../models/strategy.model";
 import { MarketData, Order } from "../models/market.model";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 
 type TradingBotMessage = 
   | { type: "START" }
@@ -32,7 +32,7 @@ export const createTradingBotService = (
   marketDataPort: MarketDataPort, 
   tradingPort: TradingPort
 ): TradingBotService => {
-  const logger = getLogger();
+  const logger = createContextualLogger("DomainTradingBot");
   const actorSystem = createActorSystem();
   
   const initialState: TradingBotState = {

@@ -1,7 +1,7 @@
 import { ActorContext, ActorMessage, ActorDefinition } from "../../actor/models/actor.model";
 import { MarketDataPort } from "../ports/market-data.port";
 import { MarketData } from "../../domain/models/market.model";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 
 // Messages that a market actor can handle
 type MarketActorMessage = 
@@ -25,7 +25,7 @@ export const createMarketActorDefinition = (
   onMarketData: (data: MarketData) => void,
   pollingInterval: number = 5000,
 ): ActorDefinition<MarketActorState, MarketActorMessage> => {
-  const logger = getLogger();
+  const logger = createContextualLogger("MarketActor");
   
   // Initial state for the actor
   const initialState: MarketActorState = {

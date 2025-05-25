@@ -26,6 +26,7 @@ export interface MarketData {
   volume: number;
   bid: number;
   ask: number;
+  indicators?: Record<string, any>;
 }
 
 export interface OrderParams {

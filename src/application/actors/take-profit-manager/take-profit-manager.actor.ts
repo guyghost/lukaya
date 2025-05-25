@@ -1,6 +1,6 @@
 import { ActorDefinition, ActorContext } from "../../../actor/models/actor.model";
 import { OrderParams, OrderSide, OrderType, TimeInForce } from "../../../domain/models/market.model";
-import { getLogger } from "../../../infrastructure/logger";
+import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 import { PositionRisk } from "../risk-manager/risk-manager.model";
 import { TradingPort } from "../../../application/ports/trading.port";
 import {
@@ -17,7 +17,7 @@ export const createTakeProfitManagerActorDefinition = (
   tradingPort: TradingPort,
   config?: Partial<TakeProfitConfig>
 ): ActorDefinition<TakeProfitState, TakeProfitMessage> => {
-  const logger = getLogger();
+  const logger = createContextualLogger("TakeProfitManager");
 
   // Configuration par défaut - Règle 3-5-7 pour la gestion des prises de profit
   const defaultConfig: TakeProfitConfig = {

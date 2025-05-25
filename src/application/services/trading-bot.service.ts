@@ -6,14 +6,22 @@ import {
 import { createActorSystem } from "../../actor/system";
 import { MarketDataPort } from "../ports/market-data.port";
 import { TradingPort } from "../ports/trading.port";
-import { OrderSide, OrderParams, OrderType, TimeInForce } from "../../domain/models/market.model";
+import { 
+  OrderSide, 
+  OrderParams, 
+  OrderType, 
+  TimeInForce,
+  Strategy,
+  MarketData, 
+  Result
+} from "../../shared";
+import { Order } from "../../domain/models/market.model";
 import {
   createStrategyService,
   StrategyService,
 } from "../../domain/services/strategy.service";
-import { Strategy } from "../../domain/models/strategy.model";
-import { MarketData, Order } from "../../domain/models/market.model";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { result } from "../../shared/utils";
 import { createMarketActorDefinition } from "../actors/market.actor";
 import { createRiskManagerActorDefinition } from "../actors/risk-manager/risk-manager.actor";
 import { createStrategyManagerActorDefinition } from "../actors/strategy-manager/strategy-manager.actor";
@@ -80,7 +88,7 @@ const checkBuyingPower = async (
   reason?: string;
   riskLevel: RiskLevel;
 }> => {
-  const logger = getLogger();
+  const logger = createContextualLogger('TradingBotService.checkBuyingPower');
 
   try {
     const balances = await tradingPort.getAccountBalance();
@@ -239,7 +247,7 @@ export const createTradingBotService = (
     takeProfitIntegratorConfig: {} as Partial<TakeProfitIntegratorConfig>,
   },
 ): TradingBotService => {
-  const logger = getLogger();
+  const logger = createContextualLogger('TradingBotService');
   const actorSystem = createActorSystem();
 
   const initialState: TradingBotState = {
@@ -267,6 +275,7 @@ export const createTradingBotService = (
     reason: string,
     context: ActorContext<TradingBotState>
   ): Promise<boolean> => {
+    const logger = createContextualLogger('TradingBotService.closePosition');
     try {
       // Get current price for this symbol
       const marketData = await marketDataPort.getLatestMarketData(symbol);
@@ -288,11 +297,11 @@ export const createTradingBotService = (
         reduceOnly: true // Ensure this only closes the position
       };
       
-      getLogger().info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
+      logger.info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
       
       // Place the order
       const placedOrder = await tradingPort.placeOrder(closeOrder);
-      getLogger().info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
+      logger.info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
       
       // Update order history
       context.send(context.self, {
@@ -302,7 +311,7 @@ export const createTradingBotService = (
       
       return true;
     } catch (error) {
-      getLogger().error(`Error closing position ${symbol}:`, error as Error);
+      logger.error(`Error closing position ${symbol}:`, error as Error);
       return false;
     }
   };

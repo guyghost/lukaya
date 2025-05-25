@@ -9,7 +9,7 @@ import { initializeLogger, createContextualLogger } from "./infrastructure/loggi
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
 import { createTradingBotService } from "./application/services/trading-bot.service";
 import { StrategyFactory } from "./adapters/strategies";
-import { ServiceStatus, StrategyType } from "./shared/enums";
+import { ServiceStatus } from "./shared/enums";
 import { Result } from "./shared/types";
 import { result } from "./shared/utils";
 
@@ -224,21 +224,6 @@ class LukayaTradingApp implements LukayaApp {
   }
 
   /**
-   * Convertit un type de stratégie string en enum StrategyType
-   */
-  private getStrategyType(typeString: string): StrategyType | null {
-    const typeMap: Record<string, StrategyType> = {
-      'rsi-divergence': StrategyType.RSI_DIVERGENCE,
-      'volume-analysis': StrategyType.VOLUME_ANALYSIS,
-      'elliott-wave': StrategyType.ELLIOTT_WAVE,
-      'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
-      'simple-ma': StrategyType.SIMPLE_MA,
-    };
-
-    return typeMap[typeString] || null;
-  }
-
-  /**
    * Configure et ajoute les stratégies
    */
   private async setupStrategies(): Promise<Result<void>> {
@@ -255,15 +240,8 @@ class LukayaTradingApp implements LukayaApp {
         }
 
         try {
-          // Convertir le type string en enum StrategyType
-          const strategyType = this.getStrategyType(strategyConfig.type);
-          if (!strategyType) {
-            this.logger.error(`Type de stratégie non reconnu: ${strategyConfig.type}`);
-            continue;
-          }
-
           const strategy = await strategyFactory.createStrategy(
-            strategyType,
+            strategyConfig.type,
             strategyConfig.parameters
           );
 

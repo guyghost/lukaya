@@ -3,13 +3,13 @@ import {
   OrderParams,
   OrderSide,
   OrderType,
-} from "../../domain/models/market.model";
-import {
   Strategy,
   StrategyConfig,
   StrategySignal,
-} from "../../domain/models/strategy.model";
-import { getLogger } from "../../infrastructure/logger";
+  Result
+} from "../../shared";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { result } from "../../shared/utils";
 
 interface HarmonicPatternConfig {
   detectionLength: number;
@@ -55,7 +55,7 @@ interface HarmonicPatternState {
 }
 
 export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): Strategy => {
-  const logger = getLogger();
+  const logger = createContextualLogger('HarmonicPatternStrategy');
   
   // État initial
   const state: HarmonicPatternState = {

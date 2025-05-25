@@ -10,7 +10,7 @@ import {
   PositionViabilityResult
 } from "./risk-manager.model";
 import { OrderParams, OrderSide, Order } from "../../../domain/models/market.model";
-import { getLogger } from "../../../infrastructure/logger";
+import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 import { TradingPort } from "../../ports/trading.port";
 
 // Create a definition for the risk manager actor
@@ -18,7 +18,7 @@ export const createRiskManagerActorDefinition = (
   tradingPort: TradingPort,
   config?: Partial<RiskManagerConfig>
 ): ActorDefinition<RiskManagerState, RiskManagerMessage> => {
-  const logger = getLogger();
+  const logger = createContextualLogger("RiskManager");
   
   // Default configuration
   const defaultConfig: RiskManagerConfig = {

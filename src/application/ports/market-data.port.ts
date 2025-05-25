@@ -1,4 +1,4 @@
-import { MarketData } from "../../domain/models/market.model";
+import { MarketData } from "../../shared";
 
 export interface MarketDataPort {
   subscribeToMarketData(symbol: string): Promise<void>;

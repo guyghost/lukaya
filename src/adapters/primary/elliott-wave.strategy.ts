@@ -3,13 +3,13 @@ import {
   OrderParams,
   OrderSide,
   OrderType,
-} from "../../domain/models/market.model";
-import {
   Strategy,
   StrategyConfig,
   StrategySignal,
-} from "../../domain/models/strategy.model";
-import { getLogger } from "../../infrastructure/logger";
+  Result
+} from "../../shared";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { result } from "../../shared/utils";
 import { SMA } from 'technicalindicators';
 
 interface ElliottWaveConfig {
@@ -47,7 +47,7 @@ interface ElliottWaveState {
 }
 
 export const createElliottWaveStrategy = (config: ElliottWaveConfig): Strategy => {
-  const logger = getLogger();
+  const logger = createContextualLogger('ElliottWaveStrategy');
   
   // État initial
   const state: ElliottWaveState = {

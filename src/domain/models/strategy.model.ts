@@ -5,6 +5,8 @@ export interface StrategySignal {
   direction: "long" | "short";
   price?: number;
   reason: string;
+  confidence?: number;
+  metadata?: Record<string, any>;
 }
 
 export interface StrategyConfig {

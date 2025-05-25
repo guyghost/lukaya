@@ -4,7 +4,7 @@ import { TakeProfitPort } from "../actors/take-profit-manager/take-profit-manage
 import { createTakeProfitManagerActorDefinition } from "../actors/take-profit-manager/take-profit-manager.actor";
 import { TradingPort } from "../ports/trading.port";
 import { MarketDataPort } from "../ports/market-data.port";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 
 /**
  * Configuration pour l'intégrateur de prise de profits
@@ -25,7 +25,7 @@ export const createTakeProfitIntegrator = (
   riskManagerPort: RiskManagerPort,
   config?: Partial<TakeProfitIntegratorConfig>
 ) => {
-  const logger = getLogger();
+  const logger = createContextualLogger("TakeProfitIntegrator");
   
   // Configuration par défaut
   const defaultConfig: TakeProfitIntegratorConfig = {

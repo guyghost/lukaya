@@ -21,7 +21,7 @@ import {
   OrderType,
   TimeInForce,
 } from "../../domain/models/market.model";
-import { getLogger } from "../../infrastructure/logger";
+import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 
 export interface DydxClientConfig {
   network: Network;
@@ -43,7 +43,7 @@ export const createDydxClient = (config: DydxClientConfig): {
   marketDataPort: MarketDataPort; 
   tradingPort: TradingPort; 
 } => {
-  const logger = getLogger();
+  const logger = createContextualLogger("DydxClient");
   
   // Create shared context
   const context: DydxClientContext = {

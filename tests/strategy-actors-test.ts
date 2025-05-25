@@ -2,8 +2,8 @@ import { createActorSystem } from '../src/actor/system';
 import { createStrategyManagerActorDefinition } from '../src/application/actors/strategy-manager/strategy-manager.actor';
 import { createStrategyActorDefinition } from '../src/adapters/primary/strategy-actor.adapter';
 import { Strategy, StrategySignal } from '../src/domain/models/strategy.model';
-import { MarketData } from '../src/domain/models/market.model';
-import { getLogger } from '../src/infrastructure/logger';
+import { MarketData, OrderParams, OrderSide, OrderType } from '../src/domain/models/market.model';
+import { createContextualLogger } from '../src/infrastructure/logging/enhanced-logger';
 
 // Créer une instance de stratégie mock
 class MockRsiDivergenceStrategy implements Strategy {
@@ -57,6 +57,18 @@ class MockRsiDivergenceStrategy implements Strategy {
     
     return null;
   }
+
+  generateOrder(signal: StrategySignal, marketData: MarketData): OrderParams | null {
+    if (!signal.price) return null;
+    
+    return {
+      symbol: marketData.symbol,
+      side: signal.direction === 'long' ? OrderSide.BUY : OrderSide.SELL,
+      type: OrderType.LIMIT,
+      size: 0.01, // Default test size
+      price: signal.price,
+    };
+  }
 }
 
 class MockVolumeAnalysisStrategy implements Strategy {
@@ -108,11 +120,23 @@ class MockVolumeAnalysisStrategy implements Strategy {
     
     return null;
   }
+
+  generateOrder(signal: StrategySignal, marketData: MarketData): OrderParams | null {
+    if (!signal.price) return null;
+    
+    return {
+      symbol: marketData.symbol,
+      side: signal.direction === 'long' ? OrderSide.BUY : OrderSide.SELL,
+      type: OrderType.LIMIT,
+      size: 0.015, // Slightly larger size for volume strategy
+      price: signal.price,
+    };
+  }
 }
 
 // Fonction de test principale
 async function runTest() {
-  const logger = getLogger();
+  const logger = createContextualLogger('StrategyActorsTest');
   logger.info("Starting strategy actors test...");
   
   // Créer le système d'acteurs

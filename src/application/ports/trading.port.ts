@@ -1,4 +1,5 @@
-import { Order, OrderParams } from "../../domain/models/market.model";
+import { OrderParams } from "../../shared";
+import { Order } from "../../domain/models/market.model";
 
 export interface TradingPort {
   placeOrder(orderParams: OrderParams): Promise<Order>;
