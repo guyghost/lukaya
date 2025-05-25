@@ -14,7 +14,6 @@ import { createRsiDivergenceStrategy } from "../primary/rsi-divergence.strategy"
 import { createVolumeAnalysisStrategy } from "../primary/volume-analysis.strategy";
 import { createElliottWaveStrategy } from "../primary/elliott-wave.strategy";
 import { createHarmonicPatternStrategy } from "../primary/harmonic-pattern.strategy";
-import { createSimpleMAStrategy } from "../primary/simple-ma.strategy";
 
 // Types pour les configurations de stratégies
 export interface RsiDivergenceConfig {
@@ -84,28 +83,12 @@ export interface HarmonicPatternConfig {
   useLimitOrders?: boolean;
 }
 
-export interface SimpleMAConfig {
-  shortPeriod: number;
-  longPeriod: number;
-  symbol: string;
-  positionSize: number;
-  maxSlippagePercent?: number;
-  minLiquidityRatio?: number;
-  riskPerTrade?: number;
-  stopLossPercent?: number;
-  accountSize?: number;
-  maxCapitalPerTrade?: number;
-  limitOrderBuffer?: number;
-  useLimitOrders?: boolean;
-}
-
 // Union type pour toutes les configurations possibles
 export type StrategyConfigMap = {
   [StrategyType.RSI_DIVERGENCE]: RsiDivergenceConfig;
   [StrategyType.VOLUME_ANALYSIS]: VolumeAnalysisConfig;
   [StrategyType.ELLIOTT_WAVE]: ElliottWaveConfig;
   [StrategyType.HARMONIC_PATTERN]: HarmonicPatternConfig;
-  [StrategyType.SIMPLE_MA]: SimpleMAConfig;
 };
 
 /**
@@ -153,10 +136,6 @@ export class StrategyFactory {
           strategy = createHarmonicPatternStrategy(config as HarmonicPatternConfig);
           break;
 
-        case StrategyType.SIMPLE_MA:
-          strategy = createSimpleMAStrategy(config as SimpleMAConfig);
-          break;
-
         default:
           throw new Error(`Type de stratégie non supporté: ${type}`);
       }
@@ -183,7 +162,6 @@ export class StrategyFactory {
       StrategyType.VOLUME_ANALYSIS,
       StrategyType.ELLIOTT_WAVE,
       StrategyType.HARMONIC_PATTERN,
-      StrategyType.SIMPLE_MA,
     ];
   }
 
@@ -203,9 +181,9 @@ export class StrategyFactory {
         return result.error(new Error("Position size requis et doit être un nombre positif"));
       }
 
-      // Validations spécifiques par type de stratégie
+      // Validation spécifique à chaque stratégie
       switch (type) {
-        case StrategyType.RSI_DIVERGENCE: {
+        case StrategyType.RSI_DIVERGENCE:
           const rsiConfig = config as RsiDivergenceConfig;
           if (typeof rsiConfig.rsiPeriod !== 'number' || rsiConfig.rsiPeriod < 2) {
             return result.error(new Error("RSI period doit être un nombre >= 2"));
@@ -213,18 +191,18 @@ export class StrategyFactory {
           if (typeof rsiConfig.divergenceWindow !== 'number' || rsiConfig.divergenceWindow <= 0) {
             return result.error(new Error("Divergence window doit être un nombre positif"));
           }
-          if (typeof rsiConfig.overboughtLevel !== 'number' || rsiConfig.overboughtLevel <= 0 || rsiConfig.overboughtLevel >= 100) {
+          if (typeof rsiConfig.overboughtLevel !== 'number' || rsiConfig.overboughtLevel < 0 || rsiConfig.overboughtLevel > 100) {
             return result.error(new Error("Overbought level doit être un nombre entre 0 et 100"));
           }
-          if (typeof rsiConfig.oversoldLevel !== 'number' || rsiConfig.oversoldLevel <= 0 || rsiConfig.oversoldLevel >= 100) {
+          if (typeof rsiConfig.oversoldLevel !== 'number' || rsiConfig.oversoldLevel < 0 || rsiConfig.oversoldLevel > 100) {
             return result.error(new Error("Oversold level doit être un nombre entre 0 et 100"));
           }
           if (rsiConfig.oversoldLevel >= rsiConfig.overboughtLevel) {
             return result.error(new Error("Oversold level doit être inférieur à Overbought level"));
           }
           break;
-        }
-        case StrategyType.VOLUME_ANALYSIS: {
+
+        case StrategyType.VOLUME_ANALYSIS:
           const volumeConfig = config as VolumeAnalysisConfig;
           if (typeof volumeConfig.volumeThreshold !== 'number' || volumeConfig.volumeThreshold <= 0) {
             return result.error(new Error("Volume threshold doit être un nombre positif"));
@@ -236,8 +214,8 @@ export class StrategyFactory {
             return result.error(new Error("Price MA length doit être un nombre positif"));
           }
           break;
-        }
-        case StrategyType.ELLIOTT_WAVE: {
+
+        case StrategyType.ELLIOTT_WAVE:
           const elliottConfig = config as ElliottWaveConfig;
           if (typeof elliottConfig.waveDetectionLength !== 'number' || elliottConfig.waveDetectionLength <= 0) {
             return result.error(new Error("Wave detection length doit être un nombre positif"));
@@ -246,8 +224,8 @@ export class StrategyFactory {
             return result.error(new Error("Price sensitivity doit être un nombre positif"));
           }
           break;
-        }
-        case StrategyType.HARMONIC_PATTERN: {
+
+        case StrategyType.HARMONIC_PATTERN:
           const harmonicConfig = config as HarmonicPatternConfig;
           if (typeof harmonicConfig.detectionLength !== 'number' || harmonicConfig.detectionLength <= 0) {
             return result.error(new Error("Detection length doit être un nombre positif"));
@@ -256,27 +234,12 @@ export class StrategyFactory {
             return result.error(new Error("Fib retracement tolerance doit être un nombre entre 0 et 0.1"));
           }
           break;
-        }
-        case StrategyType.SIMPLE_MA: {
-          const maConfig = config as SimpleMAConfig;
-          if (typeof maConfig.shortPeriod !== 'number' || maConfig.shortPeriod <= 0) {
-            return result.error(new Error("Short period doit être un nombre positif"));
-          }
-          if (typeof maConfig.longPeriod !== 'number' || maConfig.longPeriod <= 0) {
-            return result.error(new Error("Long period doit être un nombre positif"));
-          }
-          if (maConfig.shortPeriod >= maConfig.longPeriod) {
-            return result.error(new Error("Short period doit être inférieur à Long period"));
-          }
-          break;
-        }
-        // Ajoutez des cas pour d'autres types de stratégies si nécessaire
       }
 
       return result.success(undefined);
     } catch (error) {
-      this.logger.error("Erreur inattendue lors de la validation de la configuration", error as Error);
-      return result.error(error as Error, "Erreur inattendue de validation");
+      this.logger.error("Erreur inattendue lors de la validation de la configuration", error as Error, { type, config });
+      return result.error(new Error(`Erreur inattendue de validation pour ${type}: ${(error as Error).message}`));
     }
   }
 
@@ -353,22 +316,6 @@ export class StrategyFactory {
             symbol,
             positionSize,
             patternConfirmationPercentage: 80,
-            maxSlippagePercent: 1.0,
-            minLiquidityRatio: 10.0,
-            riskPerTrade: 0.01,
-            stopLossPercent: 0.02,
-            maxCapitalPerTrade: 0.25,
-            limitOrderBuffer: 0.0005,
-            useLimitOrders: false
-          };
-          break;
-
-        case StrategyType.SIMPLE_MA:
-          defaultConfig = {
-            shortPeriod: 10,
-            longPeriod: 20,
-            symbol,
-            positionSize,
             maxSlippagePercent: 1.0,
             minLiquidityRatio: 10.0,
             riskPerTrade: 0.01,

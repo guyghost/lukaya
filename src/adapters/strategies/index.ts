@@ -8,6 +8,5 @@ export type {
   VolumeAnalysisConfig,
   ElliottWaveConfig,
   HarmonicPatternConfig,
-  SimpleMAConfig,
   StrategyConfigMap,
 } from './strategy-factory';

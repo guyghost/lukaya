@@ -33,7 +33,6 @@ export enum StrategyType {
   VOLUME_ANALYSIS = 'volume-analysis',
   ELLIOTT_WAVE = 'elliott-wave',
   HARMONIC_PATTERN = 'harmonic-pattern',
-  SIMPLE_MA = 'simple-ma',
 }
 
 // Niveaux de log

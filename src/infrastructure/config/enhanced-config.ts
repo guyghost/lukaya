@@ -9,7 +9,7 @@ import { LogLevel } from "../../shared/types";
 
 // Schema de validation pour les stratégies
 const strategyConfigSchema = z.object({
-  type: z.enum(['rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern', 'simple-ma']), // Ajout de 'simple-ma'
+  type: z.enum(['rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern']), // Removed 'simple-ma'
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).default(0.25),
   parameters: z.record(z.unknown()).default({}),
@@ -176,11 +176,9 @@ export const loadConfig = (): ConfigType => {
         enabled: process.env.RSI_DIVERGENCE_ENABLED !== 'false',
         weight: Number(process.env.RSI_DIVERGENCE_WEIGHT || 0.25),
         parameters: {
-          // Renommé 'period' en 'rsiPeriod' pour correspondre à RsiDivergenceConfig
           rsiPeriod: Number(process.env.RSI_PERIOD || STRATEGY_CONSTANTS.RSI.DEFAULT_PERIOD),
           overboughtLevel: Number(process.env.RSI_OVERBOUGHT || STRATEGY_CONSTANTS.RSI.OVERBOUGHT_LEVEL),
           oversoldLevel: Number(process.env.RSI_OVERSOLD || STRATEGY_CONSTANTS.RSI.OVERSOLD_LEVEL),
-          // Renommé 'divergenceLookback' en 'divergenceWindow' pour correspondre à RsiDivergenceConfig
           divergenceWindow: Number(process.env.RSI_DIVERGENCE_LOOKBACK || STRATEGY_CONSTANTS.RSI.DIVERGENCE_LOOKBACK),
           symbol: symbol.trim(),
           positionSize: Number(process.env.RSI_POSITION_SIZE || TRADING_CONSTANTS.DEFAULT_POSITION_SIZE),
@@ -191,15 +189,12 @@ export const loadConfig = (): ConfigType => {
         enabled: process.env.VOLUME_ANALYSIS_ENABLED !== 'false',
         weight: Number(process.env.VOLUME_ANALYSIS_WEIGHT || 0.25),
         parameters: {
-          // Renommé 'maPeriod' en 'volumeMALength' pour correspondre à VolumeAnalysisConfig
           volumeMALength: Number(process.env.VOLUME_MA_PERIOD || STRATEGY_CONSTANTS.VOLUME.MA_PERIOD),
-          // Renommé 'spikeThreshold' en 'volumeThreshold' pour correspondre à VolumeAnalysisConfig
           volumeThreshold: Number(process.env.VOLUME_SPIKE_THRESHOLD || STRATEGY_CONSTANTS.VOLUME.SPIKE_THRESHOLD),
-          // 'accumulationThreshold' n'a pas de correspondance directe, conservé tel quel pour l'instant ou à réévaluer
           accumulationThreshold: Number(process.env.VOLUME_ACCUMULATION_THRESHOLD || STRATEGY_CONSTANTS.VOLUME.ACCUMULATION_THRESHOLD),
-          priceMALength: Number(process.env.PRICE_MA_LENGTH || 50), // Ajout d'une valeur par défaut, à vérifier
-          volumeSpikeFactor: Number(process.env.VOLUME_SPIKE_FACTOR || 2), // Ajout d'une valeur par défaut, à vérifier
-          priceSensitivity: Number(process.env.PRICE_SENSITIVITY || 0.01), // Ajout d'une valeur par défaut, à vérifier
+          priceMALength: Number(process.env.PRICE_MA_LENGTH || 50),
+          volumeSpikeFactor: Number(process.env.VOLUME_SPIKE_FACTOR || 2),
+          priceSensitivity: Number(process.env.PRICE_SENSITIVITY || 0.01),
           symbol: symbol.trim(),
           positionSize: Number(process.env.VOLUME_POSITION_SIZE || TRADING_CONSTANTS.DEFAULT_POSITION_SIZE),
         },
@@ -209,13 +204,10 @@ export const loadConfig = (): ConfigType => {
         enabled: process.env.ELLIOTT_WAVE_ENABLED !== 'false',
         weight: Number(process.env.ELLIOTT_WAVE_WEIGHT || 0.25),
         parameters: {
-          // Renommé 'minWaveLength' (ou une combinaison) en 'waveDetectionLength'
-          // Pour l'instant, utilisation de minWaveLength, à ajuster si la logique est différente.
           waveDetectionLength: Number(process.env.ELLIOTT_MIN_WAVE_LENGTH || STRATEGY_CONSTANTS.ELLIOTT.MIN_WAVE_LENGTH),
-          // 'maxWaveLength' n'a pas de correspondance directe, conservé tel quel ou à réévaluer
           maxWaveLength: Number(process.env.ELLIOTT_MAX_WAVE_LENGTH || STRATEGY_CONSTANTS.ELLIOTT.MAX_WAVE_LENGTH),
-          priceSensitivity: Number(process.env.ELLIOTT_PRICE_SENSITIVITY || 0.02), // Ajout d'une valeur par défaut, à vérifier
-          zerolineBufferPercent: Number(process.env.ELLIOTT_ZEROLINE_BUFFER || 0.1), // Ajout d'une valeur par défaut, à vérifier
+          priceSensitivity: Number(process.env.ELLIOTT_PRICE_SENSITIVITY || 0.02),
+          zerolineBufferPercent: Number(process.env.ELLIOTT_ZEROLINE_BUFFER || 0.1),
           fibonacciLevels: STRATEGY_CONSTANTS.ELLIOTT.FIBONACCI_LEVELS,
           symbol: symbol.trim(),
           positionSize: Number(process.env.ELLIOTT_POSITION_SIZE || TRADING_CONSTANTS.DEFAULT_POSITION_SIZE),
@@ -231,17 +223,6 @@ export const loadConfig = (): ConfigType => {
           patternConfirmationPercentage: Number(process.env.PATTERN_CONFIRMATION_PCT || 90),
           symbol: symbol.trim(),
           positionSize: Number(process.env.HARMONIC_POSITION_SIZE || TRADING_CONSTANTS.DEFAULT_POSITION_SIZE),
-        },
-      },
-      { // Ajout de la configuration simple-ma
-        type: "simple-ma" as const,
-        enabled: process.env.SIMPLE_MA_ENABLED !== 'false',
-        weight: Number(process.env.SIMPLE_MA_WEIGHT || 0.25),
-        parameters: {
-          shortPeriod: Number(process.env.SIMPLE_MA_SHORT_PERIOD || 10), // Par défaut : 10
-          longPeriod: Number(process.env.SIMPLE_MA_LONG_PERIOD || 20),  // Par défaut : 20
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.SIMPLE_MA_POSITION_SIZE || TRADING_CONSTANTS.DEFAULT_POSITION_SIZE),
         },
       },
     ]).flat(),
