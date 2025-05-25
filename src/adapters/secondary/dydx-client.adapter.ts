@@ -232,10 +232,11 @@ export const createDydxClient = (config: DydxClientConfig): {
       
       // Get orderbook
       const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
+      logger.debug(`Orderbook for ${symbol}: ${JSON.stringify(orderbook)}`);
       
       // Calculate bid/ask from orderbook
-      const topBid = orderbook?.bids?.[0]?.[0] || '0';
-      const topAsk = orderbook?.asks?.[0]?.[0] || '0';
+      const topBid = orderbook?.bids?.[0]?.price || '0';
+      const topAsk = orderbook?.asks?.[0]?.price || '0';
       
       const marketData: MarketData = {
         symbol,

@@ -99,9 +99,11 @@ export const createMarketActorDefinition = (
           return { state };
         }
         
+        logger.debug(`Polling data for market ${state.symbol}`, { actorId: context.self });
         try {
           // Get the latest market data
           const marketData = await marketDataPort.getLatestMarketData(state.symbol);
+          logger.debug(`Data received for market ${state.symbol} : ${JSON.stringify(marketData)}`, { actorId: context.self, price: marketData.price, bid: marketData.bid, ask: marketData.ask });
           
           // If data has changed, notify the trading bot
           if (!state.lastData || 
@@ -112,7 +114,7 @@ export const createMarketActorDefinition = (
             // Notify the trading bot
             onMarketData(marketData);
             
-            logger.debug(`Updated market data for ${state.symbol}: price=${marketData.price}, bid=${marketData.bid}, ask=${marketData.ask}`);
+            logger.debug(`Updated market data for ${state.symbol} (price=${marketData.price}, bid=${marketData.bid}, ask=${marketData.ask}): ${JSON.stringify(marketData)}`);
           }
           
           // Schedule next polling after the interval

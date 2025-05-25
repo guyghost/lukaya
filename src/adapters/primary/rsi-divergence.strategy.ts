@@ -148,6 +148,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
 
     processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
       try {
+        logger.debug(`Processing market data for RSI Divergence: ${JSON.stringify(data)}`, { symbol: data.symbol });
         if (data.symbol !== config.symbol) return null;
         
         // Validation des données
@@ -158,11 +159,13 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         
         // Ajouter le prix actuel à l'historique
         state.priceHistory.push(data.price);
+        logger.debug(`Price added to history`, { symbol: data.symbol, price: data.price, historyLength: state.priceHistory.length });
         
         // Garder un historique de taille raisonnable
         const maxHistorySize = config.rsiPeriod * 10;
         if (state.priceHistory.length > maxHistorySize) {
           state.priceHistory = state.priceHistory.slice(-maxHistorySize);
+          logger.debug(`Price history trimmed`, { symbol: data.symbol, newLength: state.priceHistory.length });
         }
         
         // S'assurer que nous avons suffisamment de données pour calculer le RSI
@@ -172,6 +175,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             values: state.priceHistory,
             period: config.rsiPeriod
           };
+          logger.debug(`RSI input data`, { symbol: data.symbol, valuesCount: rsiInput.values.length, period: rsiInput.period, lastFewPrices: rsiInput.values.slice(-5) });
           const rsiResult = RSI.calculate(rsiInput);
           
           // Ajouter le RSI actuel à l'historique
@@ -183,10 +187,18 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             if (state.rsiHistory.length > maxHistorySize) {
               state.rsiHistory = state.rsiHistory.slice(-maxHistorySize);
             }
+            logger.debug(`RSI calculated and added`, { symbol: data.symbol, rsi: currentRsi, rsiHistoryLength: state.rsiHistory.length });
           
           // Trouver les pivots sur les données de prix et de RSI
           const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
           const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
+          logger.debug(`Pivots found`, { 
+            symbol: data.symbol, 
+            priceHighs: pricePivots.highs.length, 
+            priceLows: pricePivots.lows.length,
+            rsiHighs: rsiPivots.highs.length,
+            rsiLows: rsiPivots.lows.length
+          });
           
           // Mettre à jour les pivots dans l'état
           state.priceHighs = pricePivots.highs.map(h => ({ price: h.value, index: h.index }));
@@ -196,6 +208,15 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           
           // Détecter les divergences
           const { bullishDivergence, bearishDivergence } = detectDivergences(state);
+          logger.debug(`Divergence analysis`, { 
+            symbol: data.symbol, 
+            bullishDivergence, 
+            bearishDivergence,
+            currentRsi,
+            oversoldLevel: config.oversoldLevel,
+            overboughtLevel: config.overboughtLevel,
+            position: state.position
+          });
           
           // Générer des signaux basés sur les divergences et les niveaux de surachat/survente
           if (bullishDivergence && currentRsi < config.oversoldLevel && state.position !== "long") {

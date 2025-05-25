@@ -327,7 +327,9 @@ export const createStrategyManagerActorDefinition = (
         const processResults = await Promise.all(
           relevantStrategies.map(async entry => {
             try {
+              logger.debug(`Processing market data for strategy ${entry.strategy.getId()} on symbol ${data.symbol}`, { actorId: context.self, strategyId: entry.strategy.getId(), symbol: data.symbol });
               const signal = await entry.strategy.processMarketData(data);
+              logger.debug(`Signal received from strategy ${entry.strategy.getId()} for symbol ${data.symbol}`, { actorId: context.self, strategyId: entry.strategy.getId(), signal });
               return { 
                 strategyId: entry.strategy.getId(), 
                 signal 
