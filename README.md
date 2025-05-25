@@ -53,8 +53,8 @@ MAX_CAPITAL_PER_TRADE=0.25 # Pourcentage maximum du capital par trade (25%)
 MAX_FUNDS_PER_ORDER=0.25   # Pourcentage maximum des fonds disponibles par ordre (25%)
 MAX_SLIPPAGE_PERCENT=1.5   # Pourcentage maximal de slippage accepté
 MIN_LIQUIDITY_RATIO=6.0    # Ratio minimum de liquidité par rapport à la taille de l'ordre
-USE_LIMIT_ORDERS=true      # Utiliser des ordres limite par défaut
-LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%)
+USE_LIMIT_ORDERS=false     # Utilisation des ordres au marché forcée (pour compatibilité dYdX)
+LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%) (non utilisé si USE_LIMIT_ORDERS=false)
 ```
 
 ### Autres paramètres
@@ -70,11 +70,12 @@ LOG_FILE_PATH="./logs/lukaya.log" # Chemin du fichier de logs
 
 ### Gestion des ordres
 
-Le bot utilise des ordres limite par défaut pour optimiser l'exécution :
-- Les ordres d'achat sont placés légèrement au-dessus du prix bid
-- Les ordres de vente sont placés légèrement en-dessous du prix ask
-- Le buffer détermine la distance entre le prix du marché et le prix limite
-- Les ordres sont définis comme "postOnly" pour garantir l'ajout de liquidité
+Par défaut, et pour une meilleure compatibilité avec dYdX, le bot utilise des **ordres au marché** (`USE_LIMIT_ORDERS=false`).
+L'utilisation d'ordres limite est configurable via la variable d'environnement `USE_LIMIT_ORDERS=true`. Si activée :
+- Les ordres d'achat seraient placés légèrement au-dessus du prix bid.
+- Les ordres de vente seraient placés légèrement en-dessous du prix ask.
+- Le `LIMIT_ORDER_BUFFER` déterminerait la distance.
+- Les ordres pourraient être définis comme "postOnly" pour garantir l'ajout de liquidité (si supporté et configuré).
 
 ## Stratégies avancées de détection des signaux faibles
 
@@ -149,17 +150,9 @@ TAKE_PROFIT_SIZE_1=30       # Pourcentage de la position à fermer au premier ni
 TAKE_PROFIT_LEVEL_2=5       # Deuxième niveau de profit (%)
 TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
 TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
-TAKE_PROFIT_SIZE_3=100      # Fermeture complète au troisième niveau
-TAKE_PROFIT_TRAILING=false  # Désactiver le trailing stop par défaut
+TAKE_PROFIT_SIZE_3=100      # Pourcentage de la position restante à fermer à ce niveau (assure la fermeture complète si les paliers précédents sont configurés pour ne pas fermer 100%)
+TRAILING_MODE=false         # Activer/désactiver le trailing take profit (variable d'env: TRAILING_MODE)
 TAKE_PROFIT_COOLDOWN=300000 # Délai entre les prises de profit (ms)
-```
-
-## Lancement
-TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
-TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
-TAKE_PROFIT_SIZE_3=100      # Pourcentage de la position à fermer au troisième niveau
-TAKE_PROFIT_TRAILING=false  # Activer/désactiver le trailing take profit
-TAKE_PROFIT_COOLDOWN=300000 # Temps minimum entre deux prises de profit (ms)
 ```
 
 ### Fonctionnement de la règle 3-5-7
