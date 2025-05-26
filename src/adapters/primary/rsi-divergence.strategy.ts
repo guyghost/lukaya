@@ -41,6 +41,13 @@ interface RsiDivergenceState {
 export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strategy => {
   const logger = createContextualLogger('RsiDivergenceStrategy');
   
+  // Réduire la taille de la fenêtre de divergence si elle est trop grande
+  // Une fenêtre plus petite détectera plus facilement des pivots
+  if (config.divergenceWindow > 5) {
+    logger.info(`Réduction de la taille de fenêtre de divergence de ${config.divergenceWindow} à 3 pour améliorer la détection des pivots`);
+    config.divergenceWindow = 3;
+  }
+  
   // État initial de la stratégie
   const state: RsiDivergenceState = {
     priceHistory: [],
@@ -63,34 +70,117 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
   const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
 
-  // Recherche des pivots locaux (sommets/creux)
+  // Recherche des pivots locaux (sommets/creux) avec une approche très souple
   const findPivots = (data: number[], window: number): { highs: {value: number, index: number}[], lows: {value: number, index: number}[] } => {
     const highs: {value: number, index: number}[] = [];
     const lows: {value: number, index: number}[] = [];
     
-    // On a besoin d'au moins 2*window+1 points pour trouver un pivot
-    if (data.length < 2 * window + 1) return { highs, lows };
+    // Utiliser une fenêtre minimale de 1 pour permettre la détection des pivots même avec peu de données
+    const effectiveWindow = Math.max(1, Math.min(window, Math.floor(data.length / 5)));
     
-    // Parcourir les données en ignorant les window premiers et derniers éléments
-    for (let i = window; i < data.length - window; i++) {
-      let isHigh = true;
-      let isLow = true;
+    logger.debug(`Finding pivots with window ${effectiveWindow} in ${data.length} data points`, {
+      originalWindow: window,
+      effectiveWindow,
+      dataLength: data.length
+    });
+    
+    // On a besoin d'au moins 2*effectiveWindow+1 points pour trouver un pivot
+    if (data.length < 2 * effectiveWindow + 1) {
+      logger.debug(`Not enough data for pivot detection: ${data.length} points, need ${2 * effectiveWindow + 1}`);
       
-      // Vérifier si le point est un sommet local
-      for (let j = 1; j <= window; j++) {
-        if (data[i] <= data[i-j] || data[i] <= data[i+j]) {
-          isHigh = false;
-        }
-        if (data[i] >= data[i-j] || data[i] >= data[i+j]) {
-          isLow = false;
-        }
-        if (!isHigh && !isLow) break;
+      // Si nous avons trop peu de données, mais au moins 3 points, essayons de détecter les pivots avec une fenêtre de 1
+      if (data.length >= 3) {
+        logger.debug(`Attempting simplified pivot detection with only ${data.length} points`);
+        return findSimplePivots(data);
       }
       
-      if (isHigh) highs.push({ value: data[i], index: i });
-      if (isLow) lows.push({ value: data[i], index: i });
+      return { highs, lows };
     }
     
+    // Parcourir les données en ignorant les effectiveWindow premiers et derniers éléments
+    for (let i = effectiveWindow; i < data.length - effectiveWindow; i++) {
+      // Pour être un sommet/creux, le point doit être supérieur/inférieur à un certain pourcentage des points dans la fenêtre
+      let higherCount = 0;
+      let lowerCount = 0;
+      
+      for (let j = 1; j <= effectiveWindow; j++) {
+        if (data[i] > data[i-j]) higherCount++;
+        if (data[i] > data[i+j]) higherCount++;
+        if (data[i] < data[i-j]) lowerCount++;
+        if (data[i] < data[i+j]) lowerCount++;
+      }
+      
+      // Calculer le pourcentage de points qui sont inférieurs/supérieurs
+      const totalPoints = effectiveWindow * 2;
+      const higherPercentage = (higherCount / totalPoints) * 100;
+      const lowerPercentage = (lowerCount / totalPoints) * 100;
+      
+      // Seuil réduit pour considérer un point comme un sommet ou un creux (60%)
+      const pivotThreshold = 60;
+      
+      if (higherPercentage >= pivotThreshold) {
+        logger.debug(`Found HIGH pivot at index ${i} with value ${data[i]} (${higherPercentage.toFixed(1)}% higher)`);
+        highs.push({ value: data[i], index: i });
+      }
+      
+      if (lowerPercentage >= pivotThreshold) {
+        logger.debug(`Found LOW pivot at index ${i} with value ${data[i]} (${lowerPercentage.toFixed(1)}% lower)`);
+        lows.push({ value: data[i], index: i });
+      }
+    }
+    
+    logger.debug(`Pivot detection complete: found ${highs.length} highs and ${lows.length} lows`);
+    
+    // Si aucun pivot n'a été trouvé avec l'approche normale, essayer l'approche simplifiée
+    if (highs.length === 0 && lows.length === 0 && data.length >= 3) {
+      logger.debug(`No pivots found with normal method, trying simplified detection`);
+      return findSimplePivots(data);
+    }
+    
+    return { highs, lows };
+  };
+  
+  // Méthode simplifiée pour trouver les pivots dans une série très courte
+  const findSimplePivots = (data: number[]): { highs: {value: number, index: number}[], lows: {value: number, index: number}[] } => {
+    const highs: {value: number, index: number}[] = [];
+    const lows: {value: number, index: number}[] = [];
+    
+    // Trouver le max et min global
+    let maxValue = -Infinity;
+    let minValue = Infinity;
+    let maxIndex = 0;
+    let minIndex = 0;
+    
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] > maxValue) {
+        maxValue = data[i];
+        maxIndex = i;
+      }
+      if (data[i] < minValue) {
+        minValue = data[i];
+        minIndex = i;
+      }
+    }
+    
+    // Ajouter les pivots globaux
+    highs.push({ value: maxValue, index: maxIndex });
+    lows.push({ value: minValue, index: minIndex });
+    
+    // Essayer de trouver des pivots locaux (pour les séries plus longues)
+    if (data.length >= 5) {
+      for (let i = 1; i < data.length - 1; i++) {
+        // Un sommet local simple
+        if (data[i] > data[i-1] && data[i] > data[i+1] && i !== maxIndex) {
+          highs.push({ value: data[i], index: i });
+        }
+        // Un creux local simple
+        if (data[i] < data[i-1] && data[i] < data[i+1] && i !== minIndex) {
+          lows.push({ value: data[i], index: i });
+        }
+      }
+    }
+    
+    logger.debug(`Simple pivot detection: found ${highs.length} highs and ${lows.length} lows`);
     return { highs, lows };
   };
 
@@ -101,6 +191,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
   } => {
     if (state.priceHistory.length < config.divergenceWindow * 2 || 
         state.rsiHistory.length < config.divergenceWindow * 2) {
+      logger.debug(`Insufficient data for divergence detection: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}, need at least ${config.divergenceWindow * 2} for both`);
       return { bullishDivergence: false, bearishDivergence: false };
     }
     
@@ -112,9 +203,22 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     const recentPriceHighs = state.priceHighs.slice(-2);
     const recentRsiHighs = state.rsiHighs.slice(-2);
     
+    // Log détaillé des pivots pour le débogage
+    logger.debug(`Divergence analysis data:`, {
+      priceHighsCount: state.priceHighs.length,
+      priceHighs: state.priceHighs.slice(-2),
+      priceLowsCount: state.priceLows.length,
+      priceLows: state.priceLows.slice(-2),
+      rsiHighsCount: state.rsiHighs.length,
+      rsiHighs: state.rsiHighs.slice(-2),
+      rsiLowsCount: state.rsiLows.length,
+      rsiLows: state.rsiLows.slice(-2)
+    });
+    
     // Vérifier s'il y a suffisamment de pivots pour l'analyse
     if (recentPriceLows.length < 2 || recentRsiLows.length < 2 || 
         recentPriceHighs.length < 2 || recentRsiHighs.length < 2) {
+      logger.debug(`Insufficient pivots for divergence detection`);
       return { bullishDivergence: false, bearishDivergence: false };
     }
     
@@ -129,6 +233,28 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       recentPriceHighs[1].price > recentPriceHighs[0].price && 
       recentRsiHighs[1].rsi < recentRsiHighs[0].rsi &&
       Math.abs(recentPriceHighs[1].index - recentRsiHighs[1].index) <= 3;
+    
+    logger.debug(`Divergence detection result: bullish=${bullishDivergence}, bearish=${bearishDivergence}`);
+    
+    if (bullishDivergence) {
+      logger.debug(`BULLISH DIVERGENCE DETAILS:`, {
+        priceLow1: recentPriceLows[0].price,
+        priceLow2: recentPriceLows[1].price,
+        rsiLow1: recentRsiLows[0].rsi,
+        rsiLow2: recentRsiLows[1].rsi,
+        indexDiff: Math.abs(recentPriceLows[1].index - recentRsiLows[1].index)
+      });
+    }
+    
+    if (bearishDivergence) {
+      logger.debug(`BEARISH DIVERGENCE DETAILS:`, {
+        priceHigh1: recentPriceHighs[0].price,
+        priceHigh2: recentPriceHighs[1].price,
+        rsiHigh1: recentRsiHighs[0].rsi,
+        rsiHigh2: recentRsiHighs[1].rsi,
+        indexDiff: Math.abs(recentPriceHighs[1].index - recentRsiHighs[1].index)
+      });
+    }
     
     return { bullishDivergence, bearishDivergence };
   };
@@ -185,20 +311,31 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
               state.rsiHistory = state.rsiHistory.slice(-maxHistorySize);
             }
             logger.debug(`RSI calculated and added`, { symbol: data.symbol, rsi: currentRsi, rsiHistoryLength: state.rsiHistory.length });
-          
-          // Trouver les pivots sur les données de prix et de RSI
-          const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
-          const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
-          logger.debug(`Pivots found`, { 
-            symbol: data.symbol, 
-            priceHighs: pricePivots.highs.length, 
-            priceLows: pricePivots.lows.length,
-            rsiHighs: rsiPivots.highs.length,
-            rsiLows: rsiPivots.lows.length
-          });
-          
-          // Mettre à jour les pivots dans l'état
-          state.priceHighs = pricePivots.highs.map(h => ({ price: h.value, index: h.index }));
+            
+            // Trouver les pivots sur les données de prix et de RSI
+            const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
+            const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
+            
+            // Déboguer les valeurs d'entrée pour la fonction findPivots
+            logger.debug(`Pivot input data`, {
+              priceDataLength: state.priceHistory.length,
+              rsiDataLength: state.rsiHistory.length,
+              window: config.divergenceWindow,
+              lastPrices: state.priceHistory.slice(-5),
+              lastRSI: state.rsiHistory.slice(-5)
+            });
+            
+            logger.debug(`Pivots found`, { 
+              symbol: data.symbol, 
+              priceHighs: pricePivots.highs.length, 
+              priceLows: pricePivots.lows.length,
+              rsiHighs: rsiPivots.highs.length,
+              rsiLows: rsiPivots.lows.length,
+              source: "RsiDivergenceStrategy"
+            });
+            
+            // Mettre à jour les pivots dans l'état
+            state.priceHighs = pricePivots.highs.map(h => ({ price: h.value, index: h.index }));
           state.priceLows = pricePivots.lows.map(l => ({ price: l.value, index: l.index }));
           state.rsiHighs = rsiPivots.highs.map(h => ({ rsi: h.value, index: h.index }));
           state.rsiLows = rsiPivots.lows.map(l => ({ rsi: l.value, index: l.index }));
@@ -404,8 +541,10 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         }
       }
 
+      logger.info(`Processed historical data: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}`);
+
       // Calculate pivots for the historical data
-      if (state.priceHistory.length > config.divergenceWindow && state.rsiHistory.length > config.divergenceWindow) {
+      if (state.priceHistory.length > config.divergenceWindow * 2 && state.rsiHistory.length > config.divergenceWindow * 2) {
         const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
         const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
         
@@ -413,6 +552,15 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         state.priceLows = pricePivots.lows.map(l => ({ price: l.value, index: l.index }));
         state.rsiHighs = rsiPivots.highs.map(h => ({ rsi: h.value, index: h.index }));
         state.rsiLows = rsiPivots.lows.map(l => ({ rsi: l.value, index: l.index }));
+        
+        logger.info(`Found pivots in historical data:`, {
+          priceHighs: state.priceHighs.length,
+          priceLows: state.priceLows.length,
+          rsiHighs: state.rsiHighs.length,
+          rsiLows: state.rsiLows.length
+        });
+      } else {
+        logger.warn(`Not enough historical data for pivot detection: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}, need at least ${config.divergenceWindow * 2} for both`);
       }
 
       logger.info(`RSI Divergence strategy initialized for ${config.symbol}`, {
