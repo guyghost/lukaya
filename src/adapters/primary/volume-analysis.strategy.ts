@@ -398,5 +398,77 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
 
       return orderParams;
     },
+
+    initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
+      if (!historicalData || historicalData.length === 0) {
+        logger.info(`No historical data provided for Volume Analysis strategy on ${config.symbol}`);
+        return;
+      }
+
+      logger.info(`Initializing Volume Analysis strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+
+      // Reset state
+      state.priceHistory = [];
+      state.volumeHistory = [];
+      state.priceMA = [];
+      state.volumeMA = [];
+      state.volumeDelta = [];
+      state.cumulativeDelta = 0;
+      state.previousPrice = null;
+      state.previousVolume = null;
+
+      // Process historical data
+      for (const data of historicalData) {
+        if (data.symbol === config.symbol && data.price && data.price > 0 && data.volume && data.volume >= 0) {
+          // Add price and volume to history
+          state.priceHistory.push(data.price);
+          state.volumeHistory.push(data.volume);
+
+          // Calculate volume delta
+          const volumeDelta = calculateVolumeDelta(
+            data.price,
+            state.previousPrice || data.price,
+            data.volume
+          );
+          state.volumeDelta.push(volumeDelta);
+          state.cumulativeDelta += volumeDelta;
+          state.previousPrice = data.price;
+          state.previousVolume = data.volume;
+
+          // Calculate moving averages if we have enough data
+          if (state.priceHistory.length >= config.priceMALength) {
+            const priceMAInput = {
+              values: state.priceHistory.slice(-config.priceMALength),
+              period: config.priceMALength
+            };
+            const priceMAResult = SMA.calculate(priceMAInput);
+            if (priceMAResult.length > 0) {
+              state.priceMA.push(priceMAResult[priceMAResult.length - 1]);
+            }
+          }
+
+          if (state.volumeHistory.length >= config.volumeMALength) {
+            const volumeMAInput = {
+              values: state.volumeHistory.slice(-config.volumeMALength),
+              period: config.volumeMALength
+            };
+            const volumeMAResult = SMA.calculate(volumeMAInput);
+            if (volumeMAResult.length > 0) {
+              state.volumeMA.push(volumeMAResult[volumeMAResult.length - 1]);
+            }
+          }
+        }
+      }
+
+      logger.info(`Volume Analysis strategy initialized for ${config.symbol}`, {
+        symbol: config.symbol,
+        priceHistoryLength: state.priceHistory.length,
+        volumeHistoryLength: state.volumeHistory.length,
+        priceMALength: state.priceMA.length,
+        volumeMALength: state.volumeMA.length,
+        cumulativeDelta: state.cumulativeDelta,
+        volumeDeltaLength: state.volumeDelta.length
+      });
+    },
   };
 };

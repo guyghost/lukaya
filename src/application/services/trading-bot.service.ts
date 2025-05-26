@@ -557,6 +557,27 @@ export const createTradingBotService = (
           strategy.getConfig().parameters as Record<string, string>
         ).symbol;
         if (symbol) {
+          // Initialize strategy with historical data before setting up market data
+          try {
+            if (strategy.initializeWithHistory) {
+              logger.info(`Fetching historical data for strategy: ${strategy.getName()}`);
+              const historicalData = await marketDataPort.getHistoricalMarketData(symbol, 100);
+              
+              if (historicalData && historicalData.length > 0) {
+                logger.info(`Initializing strategy ${strategy.getName()} with ${historicalData.length} historical data points`);
+                await strategy.initializeWithHistory(historicalData);
+                logger.info(`Strategy ${strategy.getName()} successfully initialized with historical data`);
+              } else {
+                logger.warn(`No historical data available for ${symbol}, strategy will start with real-time data only`);
+              }
+            } else {
+              logger.debug(`Strategy ${strategy.getName()} does not support historical initialization`);
+            }
+          } catch (error) {
+            logger.error(`Failed to initialize strategy ${strategy.getName()} with historical data:`, error as Error);
+            logger.warn(`Strategy will continue with real-time data only`);
+          }
+
           if (!state.marketActors.has(symbol)) {
             // Create a market actor for this symbol if it doesn't exist
             // This allows multiple strategies to use the same market data for a symbol
@@ -738,13 +759,23 @@ export const createTradingBotService = (
       }
 
       case "CONSOLIDATED_SIGNAL": { // New case to handle consolidated signals
-        if (!state.isRunning) return { state };
+        if (!state.isRunning) {
+          logger.debug(`Consolidated signal received but bot is not running`, { strategyId: payload.payload.strategyId });
+          return { state };
+        }
 
         const { strategyId, signal, marketData } = payload.payload;
 
         logger.info(
           `Received consolidated signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || marketData.price}`,
         );
+        
+        logger.debug(`Consolidated signal details`, {
+          strategyId,
+          signal: JSON.stringify(signal),
+          marketData: JSON.stringify(marketData),
+          source: "TradingBotService"
+        });
 
         const order = state.strategyService.generateOrder(
           strategyId,
@@ -752,14 +783,40 @@ export const createTradingBotService = (
           marketData,
         );
 
+        logger.debug(`Order generation result`, {
+          strategyId,
+          orderGenerated: !!order,
+          order: order ? JSON.stringify(order) : null,
+          source: "TradingBotService"
+        });
+
         if (order) {
           try {
+            logger.debug(`Starting order processing`, {
+              symbol: order.symbol,
+              side: order.side,
+              size: order.size,
+              price: order.price,
+              type: order.type,
+              source: "TradingBotService"
+            });
+
             let adjustedOrder = { ...order };
             const buyingPowerResult = await checkBuyingPower(
               order,
               marketData.price,
               tradingPort,
             );
+
+            logger.debug(`Buying power check result`, {
+              symbol: order.symbol,
+              approved: buyingPowerResult.approved,
+              reason: buyingPowerResult.reason,
+              adjustedSize: buyingPowerResult.adjustedSize,
+              adjustedPrice: buyingPowerResult.adjustedPrice,
+              riskLevel: buyingPowerResult.riskLevel,
+              source: "TradingBotService"
+            });
 
             if (!buyingPowerResult.approved) {
               logger.error(`Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`); // Corrected: Use order.symbol
@@ -777,6 +834,16 @@ export const createTradingBotService = (
                 ...(buyingPowerResult.adjustedSize && { size: buyingPowerResult.adjustedSize }),
                 ...(buyingPowerResult.adjustedPrice && { price: buyingPowerResult.adjustedPrice })
               };
+              
+              logger.debug(`Order adjusted`, {
+                originalSize: order.size,
+                adjustedSize: adjustedOrder.size,
+                originalPrice: order.price,
+                adjustedPrice: adjustedOrder.price,
+                reason: buyingPowerResult.reason,
+                source: "TradingBotService"
+              });
+              
               if (buyingPowerResult.adjustedSize) {
                 logger.warn(
                   `Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
@@ -798,6 +865,16 @@ export const createTradingBotService = (
               );
             }
 
+            logger.debug(`Preparing to place order`, {
+              symbol: adjustedOrder.symbol,
+              side: adjustedOrder.side,
+              size: adjustedOrder.size,
+              price: adjustedOrder.price,
+              type: adjustedOrder.type,
+              timeInForce: adjustedOrder.timeInForce,
+              source: "TradingBotService"
+            });
+
             if (adjustedOrder.type === OrderType.LIMIT && adjustedOrder.price) {
               const currentPrice = marketData.price;
               const priceDiff = Math.abs(adjustedOrder.price - currentPrice);
@@ -815,6 +892,15 @@ export const createTradingBotService = (
                 type: "GET_ACCOUNT_RISK",
               });
             }
+
+            logger.debug(`Calling tradingPort.placeOrder`, {
+              symbol: adjustedOrder.symbol,
+              side: adjustedOrder.side,
+              size: adjustedOrder.size,
+              price: adjustedOrder.price,
+              type: adjustedOrder.type,
+              source: "TradingBotService"
+            });
 
             const placedOrder = await tradingPort.placeOrder(adjustedOrder);
             const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';

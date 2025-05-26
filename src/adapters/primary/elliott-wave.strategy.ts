@@ -331,5 +331,43 @@ export const createElliottWaveStrategy = (config: ElliottWaveConfig): Strategy =
 
       return orderParams;
     },
+
+    initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
+      if (!historicalData || historicalData.length === 0) {
+        logger.info(`No historical data provided for Elliott Wave strategy on ${config.symbol}`);
+        return;
+      }
+
+      logger.info(`Initializing Elliott Wave strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+
+      // Reset state
+      state.priceHistory = [];
+      state.pivots = [];
+      state.waves = [];
+      state.currentWaveCount = 0;
+      state.lastSignalIndex = -1;
+
+      // Process historical data
+      for (const data of historicalData) {
+        if (data.symbol === config.symbol && data.price && data.price > 0) {
+          state.priceHistory.push(data.price);
+        }
+      }
+
+      // Detect pivots and waves for historical data
+      if (state.priceHistory.length > config.waveDetectionLength) {
+        state.pivots = identifyPivots(state.priceHistory, Math.floor(config.priceSensitivity * 10));
+        // Analyze waves using existing function
+        const waveAnalysis = analyzeElliottWaves(state.pivots, 0);
+        state.currentWaveCount = waveAnalysis.currentWave;
+      }
+
+      logger.info(`Elliott Wave strategy initialized for ${config.symbol}`, {
+        symbol: config.symbol,
+        priceHistoryLength: state.priceHistory.length,
+        pivotsDetected: state.pivots.length,
+        currentWaveCount: state.currentWaveCount
+      });
+    },
   };
 };

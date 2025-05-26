@@ -422,5 +422,42 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
 
       return orderParams;
     },
+
+    initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
+      if (!historicalData || historicalData.length === 0) {
+        logger.info(`No historical data provided for Harmonic Pattern strategy on ${config.symbol}`);
+        return;
+      }
+
+      logger.info(`Initializing Harmonic Pattern strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+
+      // Reset state
+      state.priceHistory = [];
+      state.pivots = [];
+      state.currentPatterns = [];
+      state.lastSignalIndex = -1;
+
+      // Process historical data
+      for (const data of historicalData) {
+        if (data.symbol === config.symbol && data.price && data.price > 0) {
+          state.priceHistory.push(data.price);
+        }
+      }
+
+      // Detect pivots and patterns for historical data
+      if (state.priceHistory.length > config.detectionLength) {
+        state.pivots = identifyPivots(state.priceHistory, Math.floor(config.detectionLength / 10));
+        
+        // Detect harmonic patterns
+        state.currentPatterns = detectHarmonicPatterns(state.pivots);
+      }
+
+      logger.info(`Harmonic Pattern strategy initialized for ${config.symbol}`, {
+        symbol: config.symbol,
+        priceHistoryLength: state.priceHistory.length,
+        pivotsDetected: state.pivots.length,
+        patternsDetected: state.currentPatterns.length
+      });
+    },
   };
 };

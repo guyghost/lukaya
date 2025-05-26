@@ -232,7 +232,6 @@ export const createDydxClient = (config: DydxClientConfig): {
       
       // Get orderbook
       const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
-      logger.debug(`Orderbook for ${symbol}: ${JSON.stringify(orderbook)}`);
       
       // Calculate bid/ask from orderbook
       const topBid = orderbook?.bids?.[0]?.price || '0';
@@ -356,18 +355,56 @@ export const createDydxClient = (config: DydxClientConfig): {
       
       // Otherwise fetch fresh data
       return fetchAndCacheMarketData(symbol);
+    },
+
+    getHistoricalMarketData: async (symbol: string, limit: number = 100): Promise<MarketData[]> => {
+      try {
+        const client = await getClient();
+        const { indexerClient } = client;
+
+        // Fetch historical candles (e.g., 1MIN interval)
+        const candlesResponse = await indexerClient.markets.getPerpetualMarketCandles(symbol, '1MIN');
+        if (!candlesResponse?.candles || !Array.isArray(candlesResponse.candles)) {
+          throw new Error(`No historical candle data found for ${symbol}`);
+        }
+
+        // Map candles to MarketData[]
+        return candlesResponse.candles.map((candle: any) => ({
+          symbol,
+          price: parseFloat(candle.close),
+          timestamp: new Date(candle.start).getTime(),
+          volume: parseFloat(candle.volume),
+          bid: parseFloat(candle.close), // No bid/ask in candle, use close as proxy
+          ask: parseFloat(candle.close),
+        }));
+      } catch (error) {
+        logger.error(`Failed to fetch historical market data for ${symbol}:`, error as Error);
+        return [];
+      }
     }
   };
 
   // TradingPort implementation
   const tradingPort: TradingPort = {
     placeOrder: async (orderParams: OrderParams): Promise<Order> => {
+      logger.debug("🎯 DydxClient.placeOrder() called", { 
+        orderParams,
+        timestamp: new Date().toISOString()
+      });
+
       try {
+        logger.debug("📡 Getting dYdX clients...");
         const compositeClient = await getClient();
         const subaccountClient = await getSubaccountClient();
+        logger.debug("✅ Clients obtained successfully", {
+          hasCompositeClient: !!compositeClient,
+          hasSubaccountClient: !!subaccountClient
+        });
         
         // Get market configuration
+        logger.debug("🏪 Getting market configuration...", { symbol: orderParams.symbol });
         const market = getMarketConfig(orderParams.symbol);
+        logger.debug("✅ Market configuration obtained", { market });
         
         // Create order execution parameters
         const execution = {
@@ -383,8 +420,23 @@ export const createDydxClient = (config: DydxClientConfig): {
           clientId: orderParams.clientId || crypto.randomUUID(),
         };
         
+        logger.debug("🔧 Order execution parameters prepared", { 
+          execution: {
+            ...execution,
+            subaccountClient: "[SubaccountClient]" // Don't log the full client object
+          }
+        });
+        
         // Place order using the subaccount client
-        logger.debug("Placing order", { params: orderParams });
+        logger.debug("🚀 Calling compositeClient.placeOrder()...", { 
+          symbol: orderParams.symbol,
+          type: mapOrderType(orderParams.type),
+          side: mapOrderSide(orderParams.side),
+          price: orderParams.price || 0,
+          size: orderParams.size,
+          clientId: orderParams.clientId || 1,
+          timeInForce: orderParams.type === OrderType.MARKET ? "MARKET_ORDER" : mapTimeInForce(orderParams.timeInForce)
+        });
         
         // Pour les ordres au marché, ne pas spécifier timeInForce
         const response = await compositeClient.placeOrder(
@@ -398,31 +450,74 @@ export const createDydxClient = (config: DydxClientConfig): {
           orderParams.type === OrderType.MARKET ? undefined : mapTimeInForce(orderParams.timeInForce)
         );
 
+        logger.debug("✅ compositeClient.placeOrder() completed", { 
+          response: response ? "Response received" : "No response",
+          responseKeys: response ? Object.keys(response) : "N/A"
+        });
+
         // Get the order details from indexer
         const clientId = execution.clientId;
         const wallet = await getWallet();
+        
+        logger.debug("👛 Wallet obtained", { 
+          address: wallet.address ? `${wallet.address.substring(0, 10)}...` : "No address",
+          hasWallet: !!wallet
+        });
 
         // Wait a short period for the order to be indexed
+        logger.debug("⏳ Waiting 1 second for order indexing...");
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Fetch the order by client ID
+        logger.debug("🔍 Fetching order from indexer...", { clientId });
         const client = await getClient();
         const subaccountInfo = await getDefaultSubaccount();
+        
+        logger.debug("📊 Subaccount info obtained", { 
+          subaccountNumber: subaccountInfo.subaccountNumber,
+          walletAddress: wallet.address ? `${wallet.address.substring(0, 10)}...` : "No address"
+        });
+        
         const ordersResponse = await client.indexerClient.account.getSubaccountOrders(
           wallet.address || '',
           subaccountInfo.subaccountNumber
         );
 
+        logger.debug("📋 Orders response received", { 
+          ordersCount: ordersResponse.orders?.length || 0,
+          hasOrders: !!(ordersResponse.orders && ordersResponse.orders.length > 0)
+        });
+
         // Correction : trouver l'ordre par clientId (pas juste prendre le premier)
         if (ordersResponse.orders && ordersResponse.orders.length > 0) {
+          logger.debug("🔍 Searching for order by clientId...", { 
+            clientId,
+            availableClientIds: ordersResponse.orders.map((o: any) => o.clientId)
+          });
+          
           const foundOrder = ordersResponse.orders.find((o: any) => o.clientId === clientId);
           if (foundOrder) {
-            return mapDydxOrderToOrder(foundOrder);
+            logger.debug("✅ Order found in indexer", { 
+              orderId: foundOrder.id,
+              status: foundOrder.status,
+              clientId: foundOrder.clientId
+            });
+            const mappedOrder = mapDydxOrderToOrder(foundOrder);
+            logger.debug("🔄 Order mapped successfully", { mappedOrder });
+            return mappedOrder;
+          } else {
+            logger.warn("⚠️ Order not found by clientId", { 
+              searchedClientId: clientId,
+              availableOrders: ordersResponse.orders.length
+            });
           }
+        } else {
+          logger.warn("⚠️ No orders found in response");
         }
 
         // If we can't find the order, create a synthetic one
-        return {
+        logger.debug("🔧 Creating synthetic order (order not found in indexer)");
+        const syntheticOrder = {
           id: "0",
           symbol: orderParams.symbol,
           side: orderParams.side,
@@ -436,8 +531,11 @@ export const createDydxClient = (config: DydxClientConfig): {
           reduceOnly: orderParams.reduceOnly || false,
           postOnly: orderParams.postOnly || false,
         };
+        
+        logger.debug("✅ Synthetic order created", { syntheticOrder });
+        return syntheticOrder;
       } catch (error) {
-        logger.error('Order placement failed:', error as Error);
+        logger.error('🚨 Order placement failed:', error as Error);
         throw error;
       }
     },

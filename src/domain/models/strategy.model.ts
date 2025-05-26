@@ -22,4 +22,5 @@ export interface Strategy {
   getConfig(): StrategyConfig;
   processMarketData(data: MarketData): Promise<StrategySignal | null>;
   generateOrder(signal: StrategySignal, marketData: MarketData): OrderParams | null;
+  initializeWithHistory?(historicalData: MarketData[]): Promise<void>;
 }

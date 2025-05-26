@@ -4,13 +4,10 @@ import {
   OrderSide,
   OrderType,
   Strategy,
-  StrategyConfig,
-  StrategySignal,
-  Result
+  StrategySignal
 } from "../../shared";
 import { RSI } from 'technicalindicators';
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
-import { result } from "../../shared/utils";
 
 interface RsiDivergenceConfig {
   rsiPeriod: number;
@@ -220,45 +217,67 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           
           // Générer des signaux basés sur les divergences et les niveaux de surachat/survente
           if (bullishDivergence && currentRsi < config.oversoldLevel && state.position !== "long") {
-            logger.info(`Divergence haussière détectée sur ${data.symbol} avec RSI = ${currentRsi}`);
+            logger.info(`🔥 Divergence haussière détectée sur ${data.symbol} avec RSI = ${currentRsi} - GENERATING LONG SIGNAL`);
             // Signal d'entrée long
             state.position = "long";
             state.lastEntryPrice = data.price;
-            return {
-              type: "entry",
-              direction: "long",
+            const signal: StrategySignal = {
+              type: "entry" as const,
+              direction: "long" as const,
               price: data.price,
               reason: "Divergence haussière RSI-Prix",
             };
+            logger.debug("📤 Returning LONG signal", { signal, symbol: data.symbol });
+            return signal;
           } else if (bearishDivergence && currentRsi > config.overboughtLevel && state.position !== "short") {
-            logger.info(`Divergence baissière détectée sur ${data.symbol} avec RSI = ${currentRsi}`);
+            logger.info(`🔥 Divergence baissière détectée sur ${data.symbol} avec RSI = ${currentRsi} - GENERATING SHORT SIGNAL`);
             // Signal d'entrée short
             state.position = "short";
             state.lastEntryPrice = data.price;
-            return {
-              type: "entry",
-              direction: "short",
+            const signal: StrategySignal = {
+              type: "entry" as const,
+              direction: "short" as const,
               price: data.price,
               reason: "Divergence baissière RSI-Prix",
             };
+            logger.debug("📤 Returning SHORT signal", { signal, symbol: data.symbol });
+            return signal;
           } else if (state.position === "long" && (bearishDivergence || currentRsi > config.overboughtLevel + 10)) {
             // Signal de sortie de position longue
             state.position = "none";
-            return {
-              type: "exit",
-              direction: "long",
+            const signal: StrategySignal = {
+              type: "exit" as const,
+              direction: "long" as const,
               price: data.price,
               reason: "Fin de divergence haussière ou surachat extrême",
             };
+            logger.debug("📤 Returning LONG EXIT signal", { signal, symbol: data.symbol });
+            return signal;
           } else if (state.position === "short" && (bullishDivergence || currentRsi < config.oversoldLevel - 10)) {
             // Signal de sortie de position courte
             state.position = "none";
-            return {
-              type: "exit",
-              direction: "short",
+            const signal: StrategySignal = {
+              type: "exit" as const,
+              direction: "short" as const,
               price: data.price,
               reason: "Fin de divergence baissière ou survente extrême",
             };
+            logger.debug("📤 Returning SHORT EXIT signal", { signal, symbol: data.symbol });
+            return signal;
+          } else {
+            logger.debug("🔍 No signal conditions met", {
+              symbol: data.symbol,
+              bullishDivergence,
+              bearishDivergence,
+              currentRsi,
+              oversoldLevel: config.oversoldLevel,
+              overboughtLevel: config.overboughtLevel,
+              position: state.position,
+              reasons: {
+                bullishBlocked: bullishDivergence && (currentRsi >= config.oversoldLevel || state.position === "long"),
+                bearishBlocked: bearishDivergence && (currentRsi <= config.overboughtLevel || state.position === "short")
+              }
+            });
           }
         }
       } else {
@@ -345,6 +364,66 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       }
 
       return orderParams;
+    },
+
+    initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
+      if (!historicalData || historicalData.length === 0) {
+        logger.info(`No historical data provided for RSI Divergence strategy on ${config.symbol}`);
+        return;
+      }
+
+      logger.info(`Initializing RSI Divergence strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+
+      // Reset state
+      state.priceHistory = [];
+      state.rsiHistory = [];
+      state.priceHighs = [];
+      state.priceLows = [];
+      state.rsiHighs = [];
+      state.rsiLows = [];
+
+      // Process historical data
+      for (const data of historicalData) {
+        if (data.symbol === config.symbol && data.price && data.price > 0) {
+          // Add price to history
+          state.priceHistory.push(data.price);
+
+          // Calculate RSI if we have enough data
+          if (state.priceHistory.length >= config.rsiPeriod) {
+            const rsiInput = {
+              values: state.priceHistory,
+              period: config.rsiPeriod
+            };
+            const rsiResult = RSI.calculate(rsiInput);
+            
+            if (rsiResult.length > 0) {
+              const currentRsi = rsiResult[rsiResult.length - 1];
+              state.rsiHistory.push(currentRsi);
+            }
+          }
+        }
+      }
+
+      // Calculate pivots for the historical data
+      if (state.priceHistory.length > config.divergenceWindow && state.rsiHistory.length > config.divergenceWindow) {
+        const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
+        const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
+        
+        state.priceHighs = pricePivots.highs.map(h => ({ price: h.value, index: h.index }));
+        state.priceLows = pricePivots.lows.map(l => ({ price: l.value, index: l.index }));
+        state.rsiHighs = rsiPivots.highs.map(h => ({ rsi: h.value, index: h.index }));
+        state.rsiLows = rsiPivots.lows.map(l => ({ rsi: l.value, index: l.index }));
+      }
+
+      logger.info(`RSI Divergence strategy initialized for ${config.symbol}`, {
+        symbol: config.symbol,
+        priceHistoryLength: state.priceHistory.length,
+        rsiHistoryLength: state.rsiHistory.length,
+        priceHighs: state.priceHighs.length,
+        priceLows: state.priceLows.length,
+        rsiHighs: state.rsiHighs.length,
+        rsiLows: state.rsiLows.length
+      });
     },
   };
 };
