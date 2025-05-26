@@ -19,6 +19,13 @@ export enum TimeInForce {
   GTT = "GTT",
 }
 
+export interface MarketDataMetrics {
+  tickCount: number;
+  totalTickDuration: number;
+  errorCount: number;
+  lastTick: number;
+}
+
 export interface MarketData {
   symbol: string;
   price: number;
@@ -27,6 +34,7 @@ export interface MarketData {
   bid: number;
   ask: number;
   indicators?: Record<string, any>;
+  metrics?: MarketDataMetrics;
 }
 
 export interface OrderParams {

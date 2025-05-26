@@ -262,29 +262,64 @@ export const createDydxClient = (config: DydxClientConfig): {
   };
 
   const pollMarketData = (symbol: string): void => {
+    let errorCount = 0;
+    let lastSuccess = Date.now();
     const poll = async () => {
       if (!context.subscriptions.has(symbol)) return;
-      
+      const start = Date.now();
       try {
         await fetchAndCacheMarketData(symbol);
-        
-        // Store last polling time
-        context.lastPollingTime[symbol] = Date.now();
-        
-        // Send to trading bot (this would be implemented in a real application)
-        logger.debug(`Market data updated for ${symbol}`);
-        
-        // Poll again after delay
+        // Performance metrics
+        const now = Date.now();
+        const lastPoll = context.lastPollingTime[symbol] || now;
+        const tickDuration = now - lastPoll;
+        // Récupérer ou initialiser les métriques
+        let marketData = context.marketDataCache.get(symbol);
+        if (marketData) {
+          if (!marketData.metrics) {
+            marketData.metrics = {
+              tickCount: 0,
+              totalTickDuration: 0,
+              errorCount: 0,
+              lastTick: now
+            };
+          }
+          const metrics = marketData.metrics;
+          metrics.tickCount += 1;
+          metrics.totalTickDuration += tickDuration;
+          metrics.lastTick = now;
+          metrics.errorCount = errorCount;
+          logger.info(`[PERF] ${symbol} tick #${metrics.tickCount} | Δt=${tickDuration}ms | avgΔt=${(metrics.totalTickDuration/metrics.tickCount).toFixed(1)}ms | errors=${metrics.errorCount}`);
+          // Mettre à jour le cache
+          context.marketDataCache.set(symbol, marketData);
+        }
+        context.lastPollingTime[symbol] = now;
+        errorCount = 0;
+        lastSuccess = now;
         setTimeout(poll, 5000);
       } catch (error) {
+        errorCount += 1;
         logger.error(`Error during market data polling for ${symbol}:`, error as Error);
-        
-        // Retry after a delay
-        setTimeout(poll, 10000);
+        // Exponential backoff: min 10s, max 5min
+        const delay = Math.min(300000, 10000 * Math.pow(2, errorCount - 1));
+        logger.warn(`[BACKOFF] ${symbol} polling delayed by ${delay/1000}s after ${errorCount} error(s)`);
+        // Stocker l'erreur dans les métriques
+        let marketData = context.marketDataCache.get(symbol);
+        if (marketData) {
+          if (!marketData.metrics) {
+            marketData.metrics = {
+              tickCount: 0,
+              totalTickDuration: 0,
+              errorCount: 0,
+              lastTick: Date.now()
+            };
+          }
+          marketData.metrics.errorCount = errorCount;
+          context.marketDataCache.set(symbol, marketData);
+        }
+        setTimeout(poll, delay);
       }
     };
-
-    // Start polling
     poll();
   };
 
