@@ -1,4 +1,5 @@
 import { OrderParams, Order, OrderSide } from '../../../domain/models/market.model';
+import { ActorAddress } from '../../../actor/models/actor.model';
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
 
@@ -52,13 +53,16 @@ export interface RiskAssessmentResult {
 }
 
 export type RiskManagerMessage = 
-  | { type: 'ASSESS_ORDER'; order: OrderParams; accountRisk: AccountRisk }
+  | { type: 'ASSESS_ORDER'; order: OrderParams; requestId: string }
   | { type: 'UPDATE_CONFIG'; config: Partial<RiskManagerConfig> }
   | { type: 'ORDER_FILLED'; order: Order; fillPrice: number }
   | { type: 'MARKET_UPDATE'; symbol: string; price: number }
   | { type: 'GET_POSITION_RISK'; symbol: string }
   | { type: 'GET_ACCOUNT_RISK' }
   | { type: 'REBALANCE_PORTFOLIO' }
+  | { type: 'REGISTER_ORDER_MANAGER'; orderManagerAddress: ActorAddress }
+  | { type: 'ANALYZE_OPEN_POSITIONS' }
+  | { type: 'REGISTER_ORDER_MANAGER'; orderManagerAddress: ActorAddress }
   | { type: 'ANALYZE_OPEN_POSITIONS' }
   | { type: 'CHECK_POSITION_VIABILITY'; symbol: string; currentPrice: number }
   | { type: 'CLOSE_POSITION'; symbol: string; reason: string };
@@ -70,6 +74,7 @@ export interface RiskManagerState {
   marketVolatility: Record<string, number>;
   dailyPnL: number;
   lastRebalance: number;
+  orderManagerAddress: ActorAddress | null;
 }
 
 export interface PositionViabilityResult {

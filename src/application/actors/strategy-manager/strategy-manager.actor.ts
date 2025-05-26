@@ -8,6 +8,7 @@ import {
 } from "./strategy-manager.model";
 import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 import { StrategySignal } from "../../../domain/models/strategy.model";
+import { processBatchesInParallel } from "../../../shared/utils/parallel-execution";
 
 // Create a definition for the strategy manager actor
 export const createStrategyManagerActorDefinition = (
@@ -323,9 +324,10 @@ export const createStrategyManagerActorDefinition = (
           entry.status === 'active' && entry.markets.includes(data.symbol)
         );
         
-        // Process data through each strategy
-        const processResults = await Promise.all(
-          relevantStrategies.map(async entry => {
+        // Process data through each strategy, en parallèle avec limitation
+        const processResults = await processBatchesInParallel(
+          relevantStrategies,
+          async (entry) => {
             try {
               logger.debug(`Processing market data for strategy ${entry.strategy.getId()} on symbol ${data.symbol}`, { actorId: context.self, strategyId: entry.strategy.getId(), symbol: data.symbol });
               const signal = await entry.strategy.processMarketData(data);
@@ -338,7 +340,9 @@ export const createStrategyManagerActorDefinition = (
               logger.error(`Error processing market data in strategy ${entry.strategy.getId()}`, error as Error);
               return { strategyId: entry.strategy.getId(), signal: null };
             }
-          })
+          },
+          3,  // batchSize: 3 stratégies par lot
+          2   // concurrencyLimit: 2 lots maximum en parallèle
         );
         
         // Update last signal for each strategy

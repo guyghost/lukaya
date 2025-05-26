@@ -77,28 +77,85 @@ L'utilisation d'ordres limite est configurable via la variable d'environnement `
 - Le `LIMIT_ORDER_BUFFER` déterminerait la distance.
 - Les ordres pourraient être définis comme "postOnly" pour garantir l'ajout de liquidité (si supporté et configuré).
 
-## Stratégies avancées de détection des signaux faibles
+## Optimisations récentes
 
-### RSI Divergence Strategy
-Détecte les divergences entre le prix et l'indicateur RSI pour anticiper les retournements de marché.
-- Analyse les divergences haussières et baissières
-- Filtrage par niveaux de surachat/survente
-- Confirmation par analyse de tendance
+### 1. Centralisation de la gestion du risque et des ordres
 
-### Volume Analysis Strategy  
-Monitore les patterns de volume pour identifier les signaux d'accumulation/distribution.
-- Détection des pics de volume
-- Analyse des moyennes mobiles de volume
-- Corrélation volume/prix pour validation des signaux
+Le bot implémente désormais une architecture centralisée pour la gestion des risques et des ordres :
 
-### Elliott Wave Strategy
-Identifie les structures de vagues d'Elliott pour prédire les mouvements de marché.
-- Détection des vagues impulsives et correctives
-- Analyse des ratios de Fibonacci
-- Validation par momentum et volume
+- `RiskManager` : Évalue chaque ordre selon les paramètres de risque configurés
+- `OrderManager` : Gère le cycle de vie complet des ordres et communique avec le RiskManager
 
-### Harmonic Pattern Strategy
-Reconnaît les patterns harmoniques basés sur les ratios de Fibonacci.
+Cette architecture offre plusieurs avantages :
+- Meilleure cohérence dans l'évaluation des risques
+- Prévention des conflits d'ordres
+- Suivi centralisé de l'historique des ordres
+- Gestion plus précise de l'exposition totale
+
+### 2. Parallélisation du polling et de l'exécution des stratégies
+
+Le traitement des données de marché et l'exécution des stratégies sont maintenant parallélisés :
+
+- Polling parallèle pour plusieurs symboles
+- Exécution concurrente des stratégies avec limitation configurable
+- Traitement par lots pour optimiser les performances
+
+Configuration :
+```
+PARALLEL_EXECUTION=true
+BATCH_SIZE=5
+CONCURRENCY_LIMIT=4
+```
+
+### 3. Backtesting et tests d'intégration
+
+Un système complet de backtesting a été ajouté pour tester les stratégies sur des données historiques :
+
+- Chargement de données historiques depuis diverses sources
+- Simulation précise avec slippage et frais de trading
+- Métriques de performance détaillées (Sharpe, Sortino, drawdown, etc.)
+- Interface en ligne de commande pour les backtests
+
+## Utilisation du backtesting
+
+### Exécuter un backtest simple
+
+```bash
+bun run backtest run --strategy rsi-divergence --config src/backtest/examples/backtest-config.json
+```
+
+### Comparer plusieurs stratégies
+
+```bash
+bun run backtest compare --strategies rsi-divergence,volume-analysis,harmonic-pattern --config src/backtest/examples/backtest-config.json
+```
+
+### Optimiser les paramètres d'une stratégie
+
+```bash
+bun run backtest optimize --strategy elliott-wave --config src/backtest/examples/backtest-config.json --params src/backtest/examples/parameter-ranges.json
+```
+
+### Visualiser la liste des stratégies disponibles
+
+```bash
+bun run backtest list
+```
+
+## Tests
+
+Le projet inclut désormais des tests d'intégration et de performance :
+
+```bash
+# Exécuter tous les tests
+bun run test
+
+# Exécuter uniquement les tests d'intégration
+bun run test:integration
+
+# Exécuter les tests avec couverture
+bun run test:coverage
+```
 - Détection des patterns Gartley, Butterfly, Bat
 - Validation par confluence des niveaux
 - Signaux haute probabilité aux zones de retournement

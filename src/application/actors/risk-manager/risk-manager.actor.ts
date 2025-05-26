@@ -59,7 +59,8 @@ export const createRiskManagerActorDefinition = (
     },
     marketVolatility: {},
     dailyPnL: 0,
-    lastRebalance: Date.now()
+    lastRebalance: Date.now(),
+    orderManagerAddress: null
   };
   
   // Helper functions
@@ -467,7 +468,7 @@ export const createRiskManagerActorDefinition = (
     
     switch (payload.type) {
       case "ASSESS_ORDER": {
-        const { order } = payload;
+        const { order, requestId } = payload;
         
         // Update account risk with latest data
         const updatedAccountRisk = calculateAccountRisk(state);
@@ -481,12 +482,47 @@ export const createRiskManagerActorDefinition = (
           reason: result.reason
         });
         
+        // Si nous avons un OrderManager, lui envoyer le résultat de l'évaluation
+        if (state.orderManagerAddress) {
+          logger.debug(`Envoi du résultat d'évaluation à l'OrderManager pour la requête ${requestId}`);
+          
+          // Construire l'évaluation de risque pour l'OrderManager
+          const riskAssessment = {
+            approved: result.approved,
+            adjustedSize: result.adjustedSize,
+            adjustedPrice: undefined, // Pas géré pour l'instant
+            reason: result.reason,
+            riskLevel: result.riskLevel
+          };
+          
+          // Envoyer l'évaluation à l'OrderManager
+          context.send(state.orderManagerAddress, {
+            type: "RISK_ASSESSMENT_RESULT",
+            requestId,
+            riskAssessment
+          });
+        }
+        
         // Return the updated state with recent account risk calculation
         return { 
           state: {
             ...state,
             accountRisk: updatedAccountRisk
           } 
+        };
+      }
+      
+      case "REGISTER_ORDER_MANAGER": {
+        const { orderManagerAddress } = payload;
+        
+        logger.info("Enregistrement de l'OrderManager");
+        
+        // Enregistrer l'adresse de l'OrderManager
+        return {
+          state: {
+            ...state,
+            orderManagerAddress
+          }
         };
       }
       

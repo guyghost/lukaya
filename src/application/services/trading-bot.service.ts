@@ -40,6 +40,8 @@ import { PerformanceTrackerConfig } from "../actors/performance-tracker/performa
 import { createTakeProfitIntegrator } from "../integrators/take-profit-integrator";
 import { TakeProfitConfig } from "../actors/take-profit-manager/take-profit-manager.model";
 import { TakeProfitIntegratorConfig } from "../integrators/take-profit-integrator";
+import { createOrderManagerActorDefinition } from "../actors/order-manager/order-manager.actor";
+import { OrderManagerConfig } from "../actors/order-manager/order-manager.model";
 
 type TradingBotMessage = 
   | { type: "START" }
@@ -67,6 +69,7 @@ interface TradingBotState {
   riskManagerActor: ActorAddress | null;
   strategyManagerActor: ActorAddress | null;
   performanceTrackerActor: ActorAddress | null;
+  orderManagerActor: ActorAddress | null;
   positions: Record<string, { symbol: string; direction: 'long' | 'short' | 'none'; size: number }>;
   takeProfitIntegrator: ReturnType<typeof createTakeProfitIntegrator> | null;
 }
@@ -265,6 +268,7 @@ export const createTradingBotService = (
     riskManagerActor: null,
     strategyManagerActor: null,
     performanceTrackerActor: null,
+    orderManagerActor: null,
     positions: {},
     takeProfitIntegrator: null,
   };
@@ -387,6 +391,51 @@ export const createTradingBotService = (
             performanceTrackerDefinition,
           );
           logger.info("Created performance tracker actor");
+        }
+        
+        // Create order manager if not exists
+        let orderManagerActor = state.orderManagerActor;
+        if (!orderManagerActor) {
+          const orderManagerConfig: Partial<OrderManagerConfig> = {
+            orderTimeout: 30000,           // 30 secondes
+            maxRetryAttempts: 3,
+            retryDelay: 1000,              // 1 seconde
+            maxOrderHistorySize: 1000,
+            orderRateLimit: 60             // 60 ordres par minute
+          };
+          
+          const orderManagerDefinition = createOrderManagerActorDefinition(
+            tradingPort,
+            orderManagerConfig
+          );
+          orderManagerActor = actorSystem.createActor(orderManagerDefinition);
+          logger.info("Created order manager actor");
+          state.orderManagerActor = orderManagerActor;
+          
+          // Enregistrer l'OrderManager auprès du RiskManager
+          if (riskManagerActor) {
+            actorSystem.send(riskManagerActor, {
+              type: "REGISTER_ORDER_MANAGER",
+              orderManagerAddress: orderManagerActor
+            });
+            logger.info("OrderManager enregistré auprès du RiskManager");
+          }
+          
+          // Enregistrer le RiskManager auprès de l'OrderManager
+          if (riskManagerActor) {
+            actorSystem.send(orderManagerActor, {
+              type: "REGISTER_RISK_MANAGER",
+              riskManagerAddress: riskManagerActor
+            });
+            logger.info("RiskManager enregistré auprès de l'OrderManager");
+          }
+          
+          // Enregistrer le TradingBot auprès de l'OrderManager
+          actorSystem.send(orderManagerActor, {
+            type: "REGISTER_TRADING_BOT",
+            tradingBotAddress: context.self
+          });
+          logger.info("TradingBot enregistré auprès de l'OrderManager");
         }
         
         // Initialize take profit integrator
@@ -893,89 +942,115 @@ export const createTradingBotService = (
               });
             }
 
-            logger.debug(`Calling tradingPort.placeOrder`, {
-              symbol: adjustedOrder.symbol,
-              side: adjustedOrder.side,
-              size: adjustedOrder.size,
-              price: adjustedOrder.price,
-              type: adjustedOrder.type,
-              source: "TradingBotService"
-            });
-
-            const placedOrder = await tradingPort.placeOrder(adjustedOrder);
-            const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';
-            logger.info(
-              `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || marketData.price} USD`,
-            );
-            if (adjustedOrder.side === OrderSide.BUY) {
-              logger.info(
-                `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || marketData.price)).toFixed(2)} USD`,
-              );
-              if (adjustedOrder.type === OrderType.LIMIT) {
-                logger.info(
-                  `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
-                );
-              }
-            }
-
-            context.send(context.self, {
-              type: "ORDER_PLACED",
-              order: placedOrder,
-            });
-
-            if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
-              actorSystem.send(state.riskManagerActor, {
-                type: "ORDER_FILLED",
-                order: placedOrder,
-                fillPrice: marketData.price,
+            // Utiliser l'OrderManager pour placer l'ordre
+            if (state.orderManagerActor) {
+              logger.debug(`Envoi de l'ordre à l'OrderManager`, {
+                symbol: adjustedOrder.symbol,
+                side: adjustedOrder.side,
+                size: adjustedOrder.size,
+                price: adjustedOrder.price,
+                type: adjustedOrder.type,
+                source: "TradingBotService"
               });
-              if (signal.type === "entry") {
-                state.positions[order.symbol] = {
-                  symbol: order.symbol,
-                  direction: signal.direction === "long" ? "long" : "short",
-                  size: adjustedOrder.size,
-                };
-                if (state.takeProfitIntegrator) {
-                  const position: PositionRisk = {
+              
+              const strategyId = payload.payload.strategyId;
+              
+              // Préparer la requête d'ordre
+              actorSystem.send(state.orderManagerActor, {
+                type: "PLACE_ORDER",
+                orderRequest: {
+                  orderParams: adjustedOrder,
+                  strategyId,
+                  requestTimestamp: Date.now(),
+                  replyToAddress: context.self,
+                  attempts: 0,
+                  requestId: `req_${Date.now()}_${strategyId}`
+                }
+              });
+              
+              // L'ordre sera traité de manière asynchrone, et nous recevrons une notification via ORDER_PLACED ou ORDER_REJECTED
+              return { state };
+            } else {
+              // Fallback: placer l'ordre directement si l'OrderManager n'est pas disponible
+              logger.warn("OrderManager n'est pas disponible, placement direct de l'ordre");
+              
+              const placedOrder = await tradingPort.placeOrder(adjustedOrder);
+              const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';
+              logger.info(
+                `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || marketData.price} USD`,
+              );
+              
+              if (adjustedOrder.side === OrderSide.BUY) {
+                logger.info(
+                  `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || marketData.price)).toFixed(2)} USD`,
+                );
+                if (adjustedOrder.type === OrderType.LIMIT) {
+                  logger.info(
+                    `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
+                  );
+                }
+              }
+
+              context.send(context.self, {
+                type: "ORDER_PLACED",
+                order: placedOrder,
+              });
+
+              if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
+                actorSystem.send(state.riskManagerActor, {
+                  type: "ORDER_FILLED",
+                  order: placedOrder,
+                  fillPrice: marketData.price,
+                });
+                
+                if (signal.type === "entry") {
+                  state.positions[order.symbol] = {
                     symbol: order.symbol,
                     direction: signal.direction === "long" ? "long" : "short",
                     size: adjustedOrder.size,
-                    entryPrice: marketData.price,
-                    currentPrice: marketData.price,
-                    unrealizedPnl: 0,
-                    riskLevel: "LOW",
-                    entryTime: Date.now()
                   };
-                  state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
+                  if (state.takeProfitIntegrator) {
+                    const position: PositionRisk = {
+                      symbol: order.symbol,
+                      direction: signal.direction === "long" ? "long" : "short",
+                      size: adjustedOrder.size,
+                      entryPrice: marketData.price,
+                      currentPrice: marketData.price,
+                      unrealizedPnl: 0,
+                      riskLevel: "LOW",
+                      entryTime: Date.now()
+                    };
+                    state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
+                  }
+                } else if (signal.type === "exit") {
+                  if (state.takeProfitIntegrator) {
+                    state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
+                  }
+                  delete state.positions[order.symbol];
                 }
-              } else if (signal.type === "exit") {
-                if (state.takeProfitIntegrator) {
-                  state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
-                }
-                delete state.positions[order.symbol];
+              } else if (state.riskManagerActor) {
+                logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
               }
-            } else if (state.riskManagerActor) {
-              logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
-            }
 
-            if (state.performanceTrackerActor) {
-              const tradeEntry = {
-                id: placedOrder.id,
-                strategyId,
-                symbol: order.symbol,
-                entryTime: Date.now(),
-                entryPrice: adjustedOrder.type === OrderType.MARKET ? marketData.price : adjustedOrder.price || marketData.price,
-                entryOrder: placedOrder,
-                quantity: adjustedOrder.size,
-                fees: 0,
-                status: adjustedOrder.type === OrderType.MARKET ? "open" : "pending",
-                tags: [signal.type, signal.direction, adjustedOrder.type.toLowerCase()],
-              };
-              actorSystem.send(state.performanceTrackerActor, {
-                type: "TRADE_OPENED",
-                trade: tradeEntry,
-              });
-              logger.debug(`Trade recorded in performance tracker with status: ${tradeEntry.status}`);
+              if (state.performanceTrackerActor) {
+                const tradeEntry = {
+                  id: placedOrder.id,
+                  strategyId,
+                  symbol: order.symbol,
+                  entryTime: Date.now(),
+                  entryPrice: adjustedOrder.type === OrderType.MARKET ? marketData.price : adjustedOrder.price || marketData.price,
+                  entryOrder: placedOrder,
+                  quantity: adjustedOrder.size,
+                  fees: 0,
+                  status: adjustedOrder.type === OrderType.MARKET ? "open" : "pending",
+                  tags: [signal.type, signal.direction, adjustedOrder.type.toLowerCase()],
+                };
+                actorSystem.send(state.performanceTrackerActor, {
+                  type: "TRADE_OPENED",
+                  trade: tradeEntry,
+                });
+                logger.debug(`Trade recorded in performance tracker with status: ${tradeEntry.status}`);
+              }
             }
           } catch (error) {
             logger.error(

@@ -1,0 +1,14 @@
+{
+  "symbol": "BTC/USDT",
+  "startDate": "2023-01-01T00:00:00.000Z",
+  "endDate": "2023-03-01T00:00:00.000Z",
+  "initialBalance": 10000,
+  "tradingFees": 0.1,
+  "slippage": 0.05,
+  "dataResolution": "1h",
+  "includeWeekends": true,
+  "enableStopLoss": true,
+  "stopLossPercentage": 2,
+  "enableTakeProfit": true,
+  "takeProfitPercentage": 5
+}

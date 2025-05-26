@@ -100,39 +100,90 @@ export const createMarketActorDefinition = (
         }
         
         logger.debug(`Polling data for market ${state.symbol}`, { actorId: context.self });
+        let pollingDelay = state.pollingInterval;
+        
         try {
           // Get the latest market data
           const marketData = await marketDataPort.getLatestMarketData(state.symbol);
-          logger.debug(`Data received for market ${state.symbol} : ${JSON.stringify(marketData)}`, { actorId: context.self, price: marketData.price, bid: marketData.bid, ask: marketData.ask });
           
-          // If data has changed, notify the trading bot
-          if (!state.lastData || 
-              state.lastData.price !== marketData.price || 
-              state.lastData.bid !== marketData.bid || 
-              state.lastData.ask !== marketData.ask) {
+          if (!marketData) {
+            logger.warn(`No data received for market ${state.symbol}`);
+            pollingDelay = state.pollingInterval * 2; // Longer delay on empty data
+          } else {
+            logger.debug(`Data received for market ${state.symbol}`, { 
+              actorId: context.self, 
+              price: marketData.price, 
+              bid: marketData.bid, 
+              ask: marketData.ask,
+              timestamp: marketData.timestamp
+            });
             
-            // Notify the trading bot
-            onMarketData(marketData);
+            // Enrichir les données avec des métriques de polling
+            const currentMetrics = marketData.metrics || {
+              tickCount: 0,
+              totalTickDuration: 0,
+              errorCount: 0,
+              lastTick: 0
+            };
             
-            logger.debug(`Updated market data for ${state.symbol} (price=${marketData.price}, bid=${marketData.bid}, ask=${marketData.ask}): ${JSON.stringify(marketData)}`);
+            const now = Date.now();
+            const tickDuration = state.lastUpdated > 0 ? now - state.lastUpdated : 0;
+            
+            const enrichedData: MarketData = {
+              ...marketData,
+              metrics: {
+                tickCount: currentMetrics.tickCount + 1,
+                totalTickDuration: currentMetrics.totalTickDuration + tickDuration,
+                errorCount: currentMetrics.errorCount,
+                lastTick: now
+              }
+            };
+            
+            // If data has changed, notify the trading bot
+            if (!state.lastData || 
+                state.lastData.price !== marketData.price || 
+                state.lastData.bid !== marketData.bid || 
+                state.lastData.ask !== marketData.ask) {
+              
+              // Notify the trading bot
+              onMarketData(enrichedData);
+              
+              logger.debug(`Updated market data for ${state.symbol}`, {
+                price: marketData.price, 
+                bid: marketData.bid, 
+                ask: marketData.ask,
+                avgPollingTime: enrichedData.metrics.totalTickDuration / enrichedData.metrics.tickCount
+              });
+            }
           }
           
-          // Schedule next polling after the interval
+          // Schedule next polling after the interval - using adaptive delay
           setTimeout(() => {
             if (state.isSubscribed) {
               context.send(context.self, { type: "POLL_DATA" });
             }
-          }, state.pollingInterval);
+          }, pollingDelay);
           
           return { 
             state: { 
               ...state, 
-              lastData: marketData, 
-              lastUpdated: Date.now() 
+              lastData: marketData || state.lastData, 
+              lastUpdated: marketData ? Date.now() : state.lastUpdated 
             } 
           };
         } catch (error) {
-          logger.error(`Error polling market data for ${state.symbol}`, error as Error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error(`Error polling market data for ${state.symbol}: ${errorMessage}`);
+          
+          // Update metrics to track errors
+          const metrics = state.lastData?.metrics || {
+            tickCount: 0,
+            totalTickDuration: 0,
+            errorCount: 0,
+            lastTick: 0
+          };
+          
+          metrics.errorCount++;
           
           // On error, retry after a longer interval
           setTimeout(() => {
@@ -141,7 +192,15 @@ export const createMarketActorDefinition = (
             }
           }, state.pollingInterval * 2);
           
-          return { state };
+          return { 
+            state: {
+              ...state,
+              lastData: state.lastData ? {
+                ...state.lastData,
+                metrics
+              } : null
+            } 
+          };
         }
       }
       
