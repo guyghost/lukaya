@@ -97,7 +97,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     // Utiliser une fenêtre minimale de 1 pour permettre la détection des pivots même avec peu de données
     const effectiveWindow = Math.max(1, Math.min(window, Math.floor(data.length / 5)));
     
-    logger.debug(`Finding pivots with window ${effectiveWindow} in ${data.length} data points`, {
+    logger.debug(`Recherche de pivots avec une fenêtre de ${effectiveWindow} sur ${data.length} points de données`, {
       originalWindow: window,
       effectiveWindow,
       dataLength: data.length
@@ -105,11 +105,11 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     
     // On a besoin d'au moins 2*effectiveWindow+1 points pour trouver un pivot
     if (data.length < 2 * effectiveWindow + 1) {
-      logger.debug(`Not enough data for pivot detection: ${data.length} points, need ${2 * effectiveWindow + 1}`);
+      logger.debug(`Pas assez de données pour la détection de pivot : ${data.length} points, il en faut ${2 * effectiveWindow + 1}`);
       
       // Si nous avons trop peu de données, mais au moins 3 points, essayons de détecter les pivots avec une fenêtre de 1
       if (data.length >= 3) {
-        logger.debug(`Attempting simplified pivot detection with only ${data.length} points`);
+        logger.debug(`Tentative de détection simplifiée des pivots avec seulement ${data.length} points`);
         return findSimplePivots(data);
       }
       
@@ -138,21 +138,21 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       const pivotThreshold = 60;
       
       if (higherPercentage >= pivotThreshold) {
-        logger.debug(`Found HIGH pivot at index ${i} with value ${data[i]} (${higherPercentage.toFixed(1)}% higher)`);
+        logger.debug(`Pivot HAUT trouvé à l'index ${i} avec la valeur ${data[i]} (${higherPercentage.toFixed(1)}% plus haut)`);
         highs.push({ value: data[i], index: i });
       }
       
       if (lowerPercentage >= pivotThreshold) {
-        logger.debug(`Found LOW pivot at index ${i} with value ${data[i]} (${lowerPercentage.toFixed(1)}% lower)`);
+        logger.debug(`Pivot BAS trouvé à l'index ${i} avec la valeur ${data[i]} (${lowerPercentage.toFixed(1)}% plus bas)`);
         lows.push({ value: data[i], index: i });
       }
     }
     
-    logger.debug(`Pivot detection complete: found ${highs.length} highs and ${lows.length} lows`);
+    logger.debug(`Détection des pivots terminée : ${highs.length} hauts et ${lows.length} bas trouvés`);
     
     // Si aucun pivot n'a été trouvé avec l'approche normale, essayer l'approche simplifiée
     if (highs.length === 0 && lows.length === 0 && data.length >= 3) {
-      logger.debug(`No pivots found with normal method, trying simplified detection`);
+      logger.debug(`Aucun pivot trouvé avec la méthode normale, essai de la détection simplifiée`);
       return findSimplePivots(data);
     }
     
@@ -199,7 +199,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       }
     }
     
-    logger.debug(`Simple pivot detection: found ${highs.length} highs and ${lows.length} lows`);
+    logger.debug(`Détection simplifiée des pivots : ${highs.length} hauts et ${lows.length} bas trouvés`);
     return { highs, lows };
   };
 
@@ -210,7 +210,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
   } => {
     if (state.priceHistory.length < config.divergenceWindow * 2 || 
         state.rsiHistory.length < config.divergenceWindow * 2) {
-      logger.debug(`Insufficient data for divergence detection: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}, need at least ${config.divergenceWindow * 2} for both`);
+      logger.debug(`Pas assez de données pour la détection de divergence : historique prix=${state.priceHistory.length}, historique rsi=${state.rsiHistory.length}, il faut au moins ${config.divergenceWindow * 2} pour les deux`);
       return { bullishDivergence: false, bearishDivergence: false };
     }
     
@@ -223,7 +223,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     const recentRsiHighs = state.rsiHighs.slice(-2);
     
     // Log détaillé des pivots pour le débogage
-    logger.debug(`Divergence analysis data:`, {
+    logger.debug(`Données d'analyse de divergence :`, {
       priceHighsCount: state.priceHighs.length,
       priceHighs: state.priceHighs.slice(-2),
       priceLowsCount: state.priceLows.length,
@@ -237,7 +237,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     // Vérifier s'il y a suffisamment de pivots pour l'analyse
     if (recentPriceLows.length < 2 || recentRsiLows.length < 2 || 
         recentPriceHighs.length < 2 || recentRsiHighs.length < 2) {
-      logger.debug(`Insufficient pivots for divergence detection`);
+      logger.debug(`Pas assez de pivots pour la détection de divergence`);
       return { bullishDivergence: false, bearishDivergence: false };
     }
     
@@ -253,10 +253,10 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       recentRsiHighs[1].rsi < recentRsiHighs[0].rsi &&
       Math.abs(recentPriceHighs[1].index - recentRsiHighs[1].index) <= 3;
     
-    logger.debug(`Divergence detection result: bullish=${bullishDivergence}, bearish=${bearishDivergence}`);
+    logger.debug(`Résultat de la détection de divergence : haussier=${bullishDivergence}, baissier=${bearishDivergence}`);
     
     if (bullishDivergence) {
-      logger.debug(`BULLISH DIVERGENCE DETAILS:`, {
+      logger.debug(`DÉTAILS DIVERGENCE HAUSSIÈRE :`, {
         priceLow1: recentPriceLows[0].price,
         priceLow2: recentPriceLows[1].price,
         rsiLow1: recentRsiLows[0].rsi,
@@ -266,7 +266,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     }
     
     if (bearishDivergence) {
-      logger.debug(`BEARISH DIVERGENCE DETAILS:`, {
+      logger.debug(`DÉTAILS DIVERGENCE BAISSIÈRE :`, {
         priceHigh1: recentPriceHighs[0].price,
         priceHigh2: recentPriceHighs[1].price,
         rsiHigh1: recentRsiHighs[0].rsi,
@@ -302,7 +302,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     if (Math.abs(slopeChange) > microMomentumThreshold) {
       const strength = Math.min(normalizedSlopeChange, 2.0); // Cap strength at 2.0
       if (slopeChange > 0) {
-        logger.debug(`Bullish micro-momentum detected`, {
+        logger.debug(`Micro-momentum haussier détecté`, {
           slope1: (slope1 * 100).toFixed(4),
           slope2: (slope2 * 100).toFixed(4),
           slopeChange: (slopeChange * 100).toFixed(4),
@@ -310,7 +310,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         });
         return {type: 'bullish', strength};
       } else {
-        logger.debug(`Bearish micro-momentum detected`, {
+        logger.debug(`Micro-momentum baissier détecté`, {
           slope1: (slope1 * 100).toFixed(4),
           slope2: (slope2 * 100).toFixed(4),
           slopeChange: (slopeChange * 100).toFixed(4),
@@ -345,14 +345,14 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     // Add divergence contribution (stronger weight)
     if (divergence.bullishDivergence) {
       state.cumulativeScore += 1.5;
-      logger.debug(`Bullish divergence added to cumulative score`, {
+      logger.debug(`Divergence haussière ajoutée au score cumulatif`, {
         contribution: 1.5,
         newScore: state.cumulativeScore.toFixed(2)
       });
     }
     if (divergence.bearishDivergence) {
       state.cumulativeScore -= 1.5;
-      logger.debug(`Bearish divergence added to cumulative score`, {
+      logger.debug(`Divergence baissière ajoutée au score cumulatif`, {
         contribution: -1.5,
         newScore: state.cumulativeScore.toFixed(2)
       });
@@ -385,7 +385,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     }
     
     // Log cumulative score for debugging
-    logger.debug(`Cumulative score updated`, {
+    logger.debug(`Score cumulatif mis à jour`, {
       momentum: momentum.type,
       momentumStrength: momentum.strength.toFixed(2),
       bullishDiv: divergence.bullishDivergence,
@@ -412,7 +412,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
 
     processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
       try {
-        logger.debug(`Processing market data for RSI Divergence: ${JSON.stringify(data)}`, { symbol: data.symbol });
+        logger.debug(`Traitement des données de marché pour la divergence RSI : ${JSON.stringify(data)}`, { symbol: data.symbol });
         if (data.symbol !== config.symbol) return null;
         
         // Validation des données
@@ -423,13 +423,13 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         
         // Ajouter le prix actuel à l'historique
         state.priceHistory.push(data.price);
-        logger.debug(`Price added to history`, { symbol: data.symbol, price: data.price, historyLength: state.priceHistory.length });
+        logger.debug(`Prix ajouté à l'historique`, { symbol: data.symbol, price: data.price, historyLength: state.priceHistory.length });
         
         // Garder un historique de taille raisonnable
         const maxHistorySize = config.rsiPeriod * 10;
         if (state.priceHistory.length > maxHistorySize) {
           state.priceHistory = state.priceHistory.slice(-maxHistorySize);
-          logger.debug(`Price history trimmed`, { symbol: data.symbol, newLength: state.priceHistory.length });
+          logger.debug(`Historique des prix réduit`, { symbol: data.symbol, newLength: state.priceHistory.length });
         }
         
         // S'assurer que nous avons suffisamment de données pour calculer le RSI
@@ -439,7 +439,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             values: state.priceHistory,
             period: config.rsiPeriod
           };
-          logger.debug(`RSI input data`, { symbol: data.symbol, valuesCount: rsiInput.values.length, period: rsiInput.period, lastFewPrices: rsiInput.values.slice(-5) });
+          logger.debug(`Données d'entrée RSI`, { symbol: data.symbol, valuesCount: rsiInput.values.length, period: rsiInput.period, lastFewPrices: rsiInput.values.slice(-5) });
           const rsiResult = RSI.calculate(rsiInput);
           
           // Ajouter le RSI actuel à l'historique
@@ -451,14 +451,14 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             if (state.rsiHistory.length > maxHistorySize) {
               state.rsiHistory = state.rsiHistory.slice(-maxHistorySize);
             }
-            logger.debug(`RSI calculated and added`, { symbol: data.symbol, rsi: currentRsi, rsiHistoryLength: state.rsiHistory.length });
+            logger.debug(`RSI calculé et ajouté`, { symbol: data.symbol, rsi: currentRsi, rsiHistoryLength: state.rsiHistory.length });
             
             // Trouver les pivots sur les données de prix et de RSI
             const pricePivots = findPivots(state.priceHistory, config.divergenceWindow);
             const rsiPivots = findPivots(state.rsiHistory, config.divergenceWindow);
             
             // Déboguer les valeurs d'entrée pour la fonction findPivots
-            logger.debug(`Pivot input data`, {
+            logger.debug(`Données d'entrée pour les pivots`, {
               priceDataLength: state.priceHistory.length,
               rsiDataLength: state.rsiHistory.length,
               window: config.divergenceWindow,
@@ -466,7 +466,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
               lastRSI: state.rsiHistory.slice(-5)
             });
             
-            logger.debug(`Pivots found`, { 
+            logger.debug(`Pivots trouvés`, { 
               symbol: data.symbol, 
               priceHighs: pricePivots.highs.length, 
               priceLows: pricePivots.lows.length,
@@ -495,7 +495,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
             Date.now()
           );
           
-          logger.debug(`Enhanced signal analysis`, { 
+          logger.debug(`Analyse du signal améliorée`, { 
             symbol: data.symbol, 
             bullishDivergence, 
             bearishDivergence,
@@ -513,7 +513,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           
           // Strong traditional signals (keep existing logic)
           if (bullishDivergence && currentRsi < config.oversoldLevel && state.position !== "long") {
-            logger.info(`🔥 Strong bullish divergence detected on ${data.symbol} with RSI = ${currentRsi} - GENERATING LONG SIGNAL`);
+            logger.info(`🔥 Divergence haussière forte détectée sur ${data.symbol} avec RSI = ${currentRsi} - GÉNÉRATION DU SIGNAL LONG`);
             state.position = "long";
             state.lastEntryPrice = data.price;
             state.cumulativeScore = 0; // Reset after signal
@@ -521,12 +521,12 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
               type: "entry" as const,
               direction: "long" as const,
               price: data.price,
-              reason: "Strong bullish RSI-Price divergence",
+              reason: "Divergence RSI-prix haussière forte",
             };
-            logger.debug("📤 Returning STRONG LONG signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Retour du signal LONG FORT", { signal, symbol: data.symbol });
             return signal;
           } else if (bearishDivergence && currentRsi > config.overboughtLevel && state.position !== "short") {
-            logger.info(`🔥 Strong bearish divergence detected on ${data.symbol} with RSI = ${currentRsi} - GENERATING SHORT SIGNAL`);
+            logger.info(`🔥 Divergence baissière forte détectée sur ${data.symbol} avec RSI = ${currentRsi} - GÉNÉRATION DU SIGNAL SHORT`);
             state.position = "short";
             state.lastEntryPrice = data.price;
             state.cumulativeScore = 0; // Reset after signal
@@ -534,52 +534,52 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
               type: "entry" as const,
               direction: "short" as const,
               price: data.price,
-              reason: "Strong bearish RSI-Price divergence",
+              reason: "Divergence RSI-prix baissière forte",
             };
-            logger.debug("📤 Returning STRONG SHORT signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Retour du signal SHORT FORT", { signal, symbol: data.symbol });
             return signal;
           }
           
           // Enhanced sensitivity: Cumulative weak signals
           else if (cumulativeScore >= cumulativeScoreThreshold && state.position !== "long") {
-            logger.info(`🌟 Cumulative bullish signals exceeded threshold on ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GENERATING LONG SIGNAL`);
+            logger.info(`🌟 Les signaux haussiers cumulés ont dépassé le seuil sur ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GÉNÉRATION DU SIGNAL LONG`);
             state.position = "long";
             state.lastEntryPrice = data.price;
             state.cumulativeScore = 0; // Reset after signal
             
             // Determine the dominant signal type for reason
             const reasons = [];
-            if (microMomentum.type === 'bullish') reasons.push(`bullish micro-momentum (${microMomentum.strength.toFixed(2)})`);
-            if (bullishDivergence) reasons.push('weak bullish divergence');
-            if (currentRsi < config.oversoldLevel + 10) reasons.push(`RSI approaching oversold (${currentRsi.toFixed(1)})`);
+            if (microMomentum.type === 'bullish') reasons.push(`micro-momentum haussier (${microMomentum.strength.toFixed(2)})`);
+            if (bullishDivergence) reasons.push('divergence haussière faible');
+            if (currentRsi < config.oversoldLevel + 10) reasons.push(`RSI approchant de l'oversold (${currentRsi.toFixed(1)})`);
             
             const signal: StrategySignal = {
               type: "entry" as const,
               direction: "long" as const,
               price: data.price,
-              reason: `Cumulative bullish signals: ${reasons.join(', ')}`,
+              reason: `Signaux haussiers cumulés : ${reasons.join(', ')}`,
             };
-            logger.debug("📤 Returning CUMULATIVE LONG signal", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
+            logger.debug("📤 Retour du signal LONG CUMULATIF", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
             return signal;
           } else if (cumulativeScore <= -cumulativeScoreThreshold && state.position !== "short") {
-            logger.info(`🌟 Cumulative bearish signals exceeded threshold on ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GENERATING SHORT SIGNAL`);
+            logger.info(`🌟 Les signaux baissiers cumulés ont dépassé le seuil sur ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GÉNÉRATION DU SIGNAL SHORT`);
             state.position = "short";
             state.lastEntryPrice = data.price;
             state.cumulativeScore = 0; // Reset after signal
             
             // Determine the dominant signal type for reason
             const reasons = [];
-            if (microMomentum.type === 'bearish') reasons.push(`bearish micro-momentum (${microMomentum.strength.toFixed(2)})`);
-            if (bearishDivergence) reasons.push('weak bearish divergence');
-            if (currentRsi > config.overboughtLevel - 10) reasons.push(`RSI approaching overbought (${currentRsi.toFixed(1)})`);
+            if (microMomentum.type === 'bearish') reasons.push(`micro-momentum baissier (${microMomentum.strength.toFixed(2)})`);
+            if (bearishDivergence) reasons.push('divergence baissière faible');
+            if (currentRsi > config.overboughtLevel - 10) reasons.push(`RSI approchant de l'overbought (${currentRsi.toFixed(1)})`);
             
             const signal: StrategySignal = {
               type: "entry" as const,
               direction: "short" as const,
               price: data.price,
-              reason: `Cumulative bearish signals: ${reasons.join(', ')}`,
+              reason: `Signaux baissiers cumulés : ${reasons.join(', ')}`,
             };
-            logger.debug("📤 Returning CUMULATIVE SHORT signal", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
+            logger.debug("📤 Retour du signal SHORT CUMULATIF", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
             return signal;
           }
           
@@ -587,33 +587,33 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           else if (state.position === "long" && (bearishDivergence || currentRsi > config.overboughtLevel + 10 || cumulativeScore <= -1.0)) {
             state.position = "none";
             state.cumulativeScore = 0; // Reset after exit
-            const exitReason = bearishDivergence ? "bearish divergence" : 
-                              currentRsi > config.overboughtLevel + 10 ? "extreme overbought RSI" : 
-                              "bearish signal accumulation";
+            const exitReason = bearishDivergence ? "divergence baissière" : 
+                              currentRsi > config.overboughtLevel + 10 ? "RSI extrême en surachat" : 
+                              "accumulation de signaux baissiers";
             const signal: StrategySignal = {
               type: "exit" as const,
               direction: "long" as const,
               price: data.price,
-              reason: `Long position exit: ${exitReason}`,
+              reason: `Sortie de position longue : ${exitReason}`,
             };
-            logger.debug("📤 Returning LONG EXIT signal", { signal, symbol: data.symbol, reason: exitReason });
+            logger.debug("📤 Retour du signal de SORTIE LONG", { signal, symbol: data.symbol, reason: exitReason });
             return signal;
           } else if (state.position === "short" && (bullishDivergence || currentRsi < config.oversoldLevel - 10 || cumulativeScore >= 1.0)) {
             state.position = "none";
             state.cumulativeScore = 0; // Reset after exit
-            const exitReason = bullishDivergence ? "bullish divergence" : 
-                              currentRsi < config.oversoldLevel - 10 ? "extreme oversold RSI" : 
-                              "bullish signal accumulation";
+            const exitReason = bullishDivergence ? "divergence haussière" : 
+                              currentRsi < config.oversoldLevel - 10 ? "RSI extrême en survente" : 
+                              "accumulation de signaux haussiers";
             const signal: StrategySignal = {
               type: "exit" as const,
               direction: "short" as const,
               price: data.price,
-              reason: `Short position exit: ${exitReason}`,
+              reason: `Sortie de position courte : ${exitReason}`,
             };
-            logger.debug("📤 Returning SHORT EXIT signal", { signal, symbol: data.symbol, reason: exitReason });
+            logger.debug("📤 Retour du signal de SORTIE SHORT", { signal, symbol: data.symbol, reason: exitReason });
             return signal;
           } else {
-            logger.debug("🔍 Enhanced analysis - no signal conditions met", {
+            logger.debug("🔍 Analyse améliorée - aucune condition de signal remplie", {
               symbol: data.symbol,
               traditionalSignals: {
                 bullishDivergence,
@@ -641,7 +641,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           }
         }
       } else {
-        logger.debug("Insufficient data for RSI calculation", {
+        logger.debug("Données insuffisantes pour le calcul du RSI", {
           currentLength: state.priceHistory.length,
           requiredLength: config.rsiPeriod
         });
@@ -658,7 +658,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       return null;
       
     } catch (error) {
-      logger.error("Error processing market data in RSI Divergence strategy", error as Error, {
+      logger.error("Erreur lors du traitement des données de marché dans la stratégie de divergence RSI", error as Error, {
         symbol: data.symbol,
         price: data.price,
         historyLength: state.priceHistory.length
@@ -671,7 +671,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
       if (marketData.symbol !== config.symbol) return null;
 
       // DEBUG: Log the incoming signal to trace order side calculation
-      logger.info(`🔍 [DEBUG RSI] Generating order for signal:`, {
+      logger.info(`🔍 [DEBUG RSI] Génération d'ordre pour le signal :`, {
         signalType: signal.type,
         signalDirection: signal.direction,
         signalPrice: signal.price,
@@ -687,7 +687,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           : OrderSide.SELL;
 
       // DEBUG: Log the order side calculation
-      logger.info(`🔍 [DEBUG RSI] Order side calculation:`, {
+      logger.info(`🔍 [DEBUG RSI] Calcul du côté de l'ordre :`, {
         symbol: marketData.symbol,
         signalType: signal.type,
         signalDirection: signal.direction,
@@ -749,11 +749,11 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
 
     initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
       if (!historicalData || historicalData.length === 0) {
-        logger.info(`No historical data provided for RSI Divergence strategy on ${config.symbol}`);
+        logger.info(`Aucune donnée historique fournie pour la stratégie de divergence RSI sur ${config.symbol}`);
         return;
       }
 
-      logger.info(`Initializing RSI Divergence strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+      logger.info(`Initialisation de la stratégie de divergence RSI avec ${historicalData.length} points de données historiques pour ${config.symbol}`);
 
       // Reset state
       state.priceHistory = [];
@@ -785,7 +785,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         }
       }
 
-      logger.info(`Processed historical data: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}`);
+      logger.info(`Données historiques traitées : historique des prix=${state.priceHistory.length}, historique RSI=${state.rsiHistory.length}`);
 
       // Calculate pivots for the historical data
       if (state.priceHistory.length > config.divergenceWindow * 2 && state.rsiHistory.length > config.divergenceWindow * 2) {
@@ -797,17 +797,17 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
         state.rsiHighs = rsiPivots.highs.map(h => ({ rsi: h.value, index: h.index }));
         state.rsiLows = rsiPivots.lows.map(l => ({ rsi: l.value, index: l.index }));
         
-        logger.info(`Found pivots in historical data:`, {
+        logger.info(`Pivots trouvés dans les données historiques :`, {
           priceHighs: state.priceHighs.length,
           priceLows: state.priceLows.length,
           rsiHighs: state.rsiHighs.length,
           rsiLows: state.rsiLows.length
         });
       } else {
-        logger.warn(`Not enough historical data for pivot detection: price history=${state.priceHistory.length}, rsi history=${state.rsiHistory.length}, need at least ${config.divergenceWindow * 2} for both`);
+        logger.warn(`Pas assez de données historiques pour la détection de pivots : historique prix=${state.priceHistory.length}, historique rsi=${state.rsiHistory.length}, il faut au moins ${config.divergenceWindow * 2} pour les deux`);
       }
 
-      logger.info(`RSI Divergence strategy initialized for ${config.symbol}`, {
+      logger.info(`Stratégie de divergence RSI initialisée pour ${config.symbol}`, {
         symbol: config.symbol,
         priceHistoryLength: state.priceHistory.length,
         rsiHistoryLength: state.rsiHistory.length,

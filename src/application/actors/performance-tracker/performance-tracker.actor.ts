@@ -171,7 +171,7 @@ export const createPerformanceTrackerActorDefinition = (
       case "TRADE_OPENED": {
         const { trade } = payload;
         
-        logger.info(`New trade opened: ${trade.id}`, {
+        logger.info(`Nouveau trade ouvert : ${trade.id}`, {
           symbol: trade.symbol,
           strategy: trade.strategyId,
           entryPrice: trade.entryPrice
@@ -201,7 +201,7 @@ export const createPerformanceTrackerActorDefinition = (
       case "TRADE_CLOSED": {
         const { trade } = payload;
         
-        logger.info(`Trade closed: ${trade.id}`, {
+        logger.info(`Trade clôturé : ${trade.id}`, {
           symbol: trade.symbol,
           strategy: trade.strategyId,
           entryPrice: trade.entryPrice,
@@ -269,37 +269,37 @@ export const createPerformanceTrackerActorDefinition = (
       }
       
       case "GET_ACCOUNT_METRICS": {
-        logger.debug("Returning account metrics");
+        logger.debug("Retour des métriques du compte");
         return { state };
       }
       
       case "GET_SYMBOL_PERFORMANCE": {
         const { symbol } = payload;
-        logger.debug(`Returning performance for symbol: ${symbol}`);
+        logger.debug(`Retour de la performance pour le symbole : ${symbol}`);
         return { state };
       }
       
       case "GET_STRATEGY_PERFORMANCE": {
         const { strategyId } = payload;
-        logger.debug(`Returning performance for strategy: ${strategyId}`);
+        logger.debug(`Retour de la performance pour la stratégie : ${strategyId}`);
         return { state };
       }
       
       case "GET_TRADE_HISTORY": {
         const { filters } = payload;
-        logger.debug("Returning filtered trade history", filters);
+        logger.debug("Retour de l'historique des trades filtré", filters);
         return { state };
       }
       
       case "GENERATE_PERFORMANCE_REPORT": {
         const { type, period = 'all' } = payload;
-        logger.info(`Generating ${type} performance report for period: ${period}`);
+        logger.info(`Génération du rapport de performance ${type} pour la période : ${period}`);
         return { state };
       }
       
       case "UPDATE_CONFIG": {
         const { config } = payload;
-        logger.info("Updating performance tracker configuration", config);
+        logger.info("Mise à jour de la configuration du tracker de performance", config);
         return {
           state: {
             ...state,

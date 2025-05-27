@@ -52,18 +52,18 @@ export const createTradingBotService = (
 
     switch (payload.type) {
       case "START": {
-        logger.info("Starting trading bot...");
+        logger.info("Démarrage du trading bot...");
         return { state: { ...state, isRunning: true } };
       }
 
       case "STOP": {
-        logger.info("Stopping trading bot...");
+        logger.info("Arrêt du trading bot...");
         return { state: { ...state, isRunning: false } };
       }
 
       case "ADD_STRATEGY": {
         const { strategy } = payload;
-        logger.info(`Adding strategy: ${strategy.getName()}`);
+        logger.info(`Ajout de la stratégie : ${strategy.getName()}`);
         
         state.strategyService.registerStrategy(strategy);
         
@@ -72,7 +72,7 @@ export const createTradingBotService = (
         if (symbol && !state.subscribedSymbols.has(symbol)) {
           await marketDataPort.subscribeToMarketData(symbol);
           state.subscribedSymbols.add(symbol);
-          logger.debug(`Subscribed to market data for symbol: ${symbol}`);
+          logger.debug(`Abonné aux données de marché pour le symbole : ${symbol}`);
         }
         
         return { state };
@@ -80,7 +80,7 @@ export const createTradingBotService = (
 
       case "REMOVE_STRATEGY": {
         const { strategyId } = payload;
-        logger.info(`Removing strategy: ${strategyId}`);
+        logger.info(`Suppression de la stratégie : ${strategyId}`);
         
         // Get the strategy before removing it to check its symbol
         const strategy = state.strategyService.getStrategy(strategyId);
@@ -99,7 +99,7 @@ export const createTradingBotService = (
           if (!stillInUse) {
             await marketDataPort.unsubscribeFromMarketData(strategySymbol);
             state.subscribedSymbols.delete(strategySymbol);
-            logger.debug(`Unsubscribed from symbol: ${strategySymbol}`);
+            logger.debug(`Désabonné du symbole : ${strategySymbol}`);
           }
         }
         
@@ -110,7 +110,7 @@ export const createTradingBotService = (
         if (!state.isRunning) return { state };
         
         const { data } = payload;
-        logger.debug(`Received market data for ${data.symbol}: ${data.price}`);
+        logger.debug(`Données de marché reçues pour ${data.symbol} : ${data.price}`);
         
         // Process market data through all strategies
         const signals = await state.strategyService.processMarketData(data);
@@ -119,17 +119,17 @@ export const createTradingBotService = (
         for (const [strategyId, signal] of Array.from(signals.entries())) {
           if (!signal) continue;
           
-          logger.info(`Signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price}`);
+          logger.info(`Signal de ${strategyId} : ${signal.type} ${signal.direction} @ ${signal.price}`);
           
           const order = state.strategyService.generateOrder(strategyId, signal, data);
           if (order) {
             try {
               const placedOrder = await tradingPort.placeOrder(order);
-              logger.info(`Order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${order.size} @ ${order.price || 'market'}`);
+              logger.info(`Ordre placé : ${placedOrder.id} pour ${order.symbol}, ${order.side} ${order.size} @ ${order.price || 'marché'}`);
               
               state.orderHistory.push(placedOrder);
             } catch (error) {
-              logger.error(`Error placing order for ${order.symbol}`, error as Error, {
+              logger.error(`Erreur lors du placement de l'ordre pour ${order.symbol}`, error as Error, {
                 order: JSON.stringify(order)
               });
             }
@@ -161,7 +161,7 @@ export const createTradingBotService = (
         const marketData = await marketDataPort.getLatestMarketData(symbol);
         actorSystem.send(botAddress, { type: "MARKET_DATA", data: marketData });
       } catch (error) {
-        logger.error(`Error polling market data for ${symbol}`, error as Error);
+        logger.error(`Erreur lors de la vérification du pouvoir d'achat`, error as Error);
       }
     }
     

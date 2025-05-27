@@ -299,7 +299,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
             
             // Signal d'entrée LONG: pattern bullish
             if (pattern.direction === "bullish" && state.position !== "long") {
-              logger.info(`Pattern harmonique ${pattern.type} bullish détecté sur ${data.symbol}`);
+              logger.info(`Pattern harmonique ${pattern.type} haussier détecté sur ${data.symbol}`);
               state.position = "long";
               state.lastEntryPrice = data.price;
               state.lastSignalIndex = state.priceHistory.length - 1;
@@ -308,13 +308,13 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
                 type: "entry",
                 direction: "long",
                 price: data.price,
-                reason: `Pattern harmonique ${pattern.type.toUpperCase()} bullish détecté (hausse attendue)`,
+                reason: `Pattern harmonique ${pattern.type.toUpperCase()} haussier détecté (hausse attendue)`,
               };
             }
             
             // Signal d'entrée SHORT: pattern bearish
             else if (pattern.direction === "bearish" && state.position !== "short") {
-              logger.info(`Pattern harmonique ${pattern.type} bearish détecté sur ${data.symbol}`);
+              logger.info(`Pattern harmonique ${pattern.type} baissier détecté sur ${data.symbol}`);
               state.position = "short";
               state.lastEntryPrice = data.price;
               state.lastSignalIndex = state.priceHistory.length - 1;
@@ -323,7 +323,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
                 type: "entry",
                 direction: "short",
                 price: data.price,
-                reason: `Pattern harmonique ${pattern.type.toUpperCase()} bearish détecté (baisse attendue)`,
+                reason: `Pattern harmonique ${pattern.type.toUpperCase()} baissier détecté (baisse attendue)`,
               };
             }
             
@@ -370,7 +370,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
       if (marketData.symbol !== config.symbol) return null;
 
       // DEBUG: Log the incoming signal to trace order side calculation
-      logger.info(`🔍 [DEBUG HARMONIC] Generating order for signal:`, {
+      logger.info(`🔍 [DEBUG HARMONIC] Génération d'un ordre pour le signal :`, {
         signalType: signal.type,
         signalDirection: signal.direction,
         signalPrice: signal.price,
@@ -386,7 +386,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
           : OrderSide.SELL;
 
       // DEBUG: Log the order side calculation
-      logger.info(`🔍 [DEBUG HARMONIC] Order side calculation:`, {
+      logger.info(`🔍 [DEBUG HARMONIC] Calcul du côté de l'ordre :`, {
         symbol: marketData.symbol,
         signalType: signal.type,
         signalDirection: signal.direction,
@@ -446,11 +446,11 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
 
     initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
       if (!historicalData || historicalData.length === 0) {
-        logger.info(`No historical data provided for Harmonic Pattern strategy on ${config.symbol}`);
+        logger.info(`Aucune donnée historique fournie pour la stratégie Harmonic Pattern sur ${config.symbol}`);
         return;
       }
 
-      logger.info(`Initializing Harmonic Pattern strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+      logger.info(`Initialisation de la stratégie Harmonic Pattern avec ${historicalData.length} points de données historiques pour ${config.symbol}`);
 
       // Reset state
       state.priceHistory = [];
@@ -473,7 +473,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
         state.currentPatterns = detectHarmonicPatterns(state.pivots);
       }
 
-      logger.info(`Harmonic Pattern strategy initialized for ${config.symbol}`, {
+      logger.info(`Stratégie Harmonic Pattern initialisée pour ${config.symbol}`, {
         symbol: config.symbol,
         priceHistoryLength: state.priceHistory.length,
         pivotsDetected: state.pivots.length,

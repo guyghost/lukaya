@@ -73,14 +73,14 @@ export const createStrategyActorDefinition = (
         }
         
         try {
-          logger.debug(`[Strategy Actor ${strategyId}] Processing market data for ${data.symbol}`);
+          logger.debug(`[Acteur de stratégie ${strategyId}] Traitement des données de marché pour ${data.symbol}`);
           
           // Traiter les données avec la stratégie
           const signal = await state.strategy.processMarketData(data);
           
           // Si un signal est généré et que nous avons une référence au gestionnaire de stratégie, transmettre le signal
           if (signal && state.strategyManagerAddress) {
-            logger.info(`[Strategy Actor ${strategyId}] Generated ${signal.type}/${signal.direction} signal for ${data.symbol}`);
+            logger.info(`[Acteur de stratégie ${strategyId}] Signal généré ${signal.type}/${signal.direction} pour ${data.symbol}`);
             
             // Envoyer le signal au Strategy Manager
             context.send(state.strategyManagerAddress, {
@@ -112,14 +112,14 @@ export const createStrategyActorDefinition = (
             }
           };
         } catch (error) {
-          logger.error(`[Strategy Actor ${strategyId}] Error processing market data:`, error as Error);
+          logger.error(`[Acteur de stratégie ${strategyId}] Erreur lors du traitement des données de marché :`, error as Error);
           return { state };
         }
       }
       
       case "UPDATE_CONFIG": {
         const { config } = payload;
-        logger.debug(`[Strategy Actor ${strategyId}] Updating configuration`);
+        logger.debug(`[Acteur de stratégie ${strategyId}] Mise à jour de la configuration`);
         
         // Dans un cas réel, nous mettrions à jour la configuration de la stratégie ici
         // Pour l'instant, nous ne faisons que mettre à jour l'état active
@@ -138,7 +138,7 @@ export const createStrategyActorDefinition = (
       }
       
       default: {
-        logger.warn(`[Strategy Actor ${strategyId}] Unknown message type: ${(payload as any).type}`);
+        logger.warn(`[Acteur de stratégie ${strategyId}] Type de message inconnu : ${(payload as any).type}`);
         return { state };
       }
     }

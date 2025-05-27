@@ -140,7 +140,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
 
     processMarketData: async (data: MarketData): Promise<StrategySignal | null> => {
       try {
-        logger.debug(`Processing market data for Volume Analysis: ${JSON.stringify(data)}`, { symbol: data.symbol });
+        logger.debug(`Traitement des données de marché pour l'Analyse de Volume : ${JSON.stringify(data)}`, { symbol: data.symbol });
         if (data.symbol !== config.symbol) return null;
         
         // Validation des données
@@ -152,7 +152,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
         // Ajouter le prix et le volume actuels à l'historique
         state.priceHistory.push(data.price);
         state.volumeHistory.push(data.volume);
-        logger.debug(`Price and volume added to history`, { 
+        logger.debug(`Prix et volume ajoutés à l'historique`, { 
           symbol: data.symbol, 
           price: data.price, 
           volume: data.volume,
@@ -166,7 +166,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
           state.previousPrice || data.price,
           data.volume
         );
-        logger.debug(`Volume delta calculated`, { 
+        logger.debug(`Delta de volume calculé`, { 
           symbol: data.symbol, 
           volumeDelta, 
           currentPrice: data.price, 
@@ -179,7 +179,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
         state.cumulativeDelta += volumeDelta;
         state.previousPrice = data.price;
         state.previousVolume = data.volume;
-        logger.debug(`Volume state updated`, { 
+        logger.debug(`État du volume mis à jour`, { 
           symbol: data.symbol, 
           cumulativeDelta: state.cumulativeDelta, 
           volumeDeltaHistoryLength: state.volumeDelta.length 
@@ -195,7 +195,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
           if (priceMAResult.length > 0) {
             const newPriceMA = priceMAResult[priceMAResult.length - 1];
             state.priceMA.push(newPriceMA);
-            logger.debug(`Price MA calculated`, { 
+            logger.debug(`Moyenne mobile du prix calculée`, { 
               symbol: data.symbol, 
               priceMA: newPriceMA, 
               period: config.priceMALength,
@@ -213,7 +213,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
           if (volumeMAResult.length > 0) {
             const newVolumeMA = volumeMAResult[volumeMAResult.length - 1];
             state.volumeMA.push(newVolumeMA);
-            logger.debug(`Volume MA calculated`, { 
+            logger.debug(`Moyenne mobile du volume calculée`, { 
               symbol: data.symbol, 
               volumeMA: newVolumeMA, 
               period: config.volumeMALength,
@@ -224,7 +224,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
         
         // Détecter les anomalies de volume
         const volumeAnalysis = detectVolumeAnomalies(state);
-        logger.debug(`Volume analysis result`, { 
+        logger.debug(`Résultat de l'analyse de volume`, { 
           symbol: data.symbol, 
           volumeSpike: volumeAnalysis.volumeSpike,
           buyingPressure: volumeAnalysis.buyingPressure,
@@ -245,7 +245,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
           if (canGenerateSignal) {
             // La tendance de prix est déterminée par la direction de la MA
             const priceTrend = state.priceMA[state.priceMA.length - 1] > state.priceMA[state.priceMA.length - 3] ? "up" : "down";
-            logger.debug(`Signal analysis`, { 
+            logger.debug(`Analyse du signal`, { 
               symbol: data.symbol, 
               priceTrend,
               canGenerateSignal,
@@ -260,7 +260,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
             if (volumeAnalysis.buyingPressure && 
                 priceTrend === "up" && 
                 state.position !== "long") {
-              logger.info(`Forte pression d'achat détectée sur ${data.symbol} avec ratio de volume ${volumeAnalysis.volumeRatio.toFixed(2)}`);
+              logger.info(`Forte pression d'achat détectée sur ${data.symbol} avec un ratio de volume de ${volumeAnalysis.volumeRatio.toFixed(2)}`);
               state.position = "long";
               state.lastEntryPrice = data.price;
               state.lastVolumeSignal = state.volumeHistory.length;
@@ -276,7 +276,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
             else if (volumeAnalysis.sellingPressure && 
                      priceTrend === "down" && 
                      state.position !== "short") {
-              logger.info(`Forte pression de vente détectée sur ${data.symbol} avec ratio de volume ${volumeAnalysis.volumeRatio.toFixed(2)}`);
+              logger.info(`Forte pression de vente détectée sur ${data.symbol} avec un ratio de volume de ${volumeAnalysis.volumeRatio.toFixed(2)}`);
               state.position = "short";
               state.lastEntryPrice = data.price;
               state.lastVolumeSignal = state.volumeHistory.length;
@@ -337,7 +337,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
         
         return null;
       } catch (error) {
-        logger.error("Erreur dans le traitement des données de marché", error as Error);
+        logger.error("Erreur lors du traitement des données de marché", error as Error);
         return null;
       }
     },
@@ -346,7 +346,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
       if (marketData.symbol !== config.symbol) return null;
 
       // DEBUG: Log the incoming signal to trace order side calculation
-      logger.info(`🔍 [DEBUG VOLUME] Generating order for signal:`, {
+      logger.info(`🔍 [DEBUG VOLUME] Génération d'un ordre pour le signal :`, {
         signalType: signal.type,
         signalDirection: signal.direction,
         signalPrice: signal.price,
@@ -362,7 +362,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
           : OrderSide.SELL;
 
       // DEBUG: Log the order side calculation
-      logger.info(`🔍 [DEBUG VOLUME] Order side calculation:`, {
+      logger.info(`🔍 [DEBUG VOLUME] Calcul du côté de l'ordre :`, {
         symbol: marketData.symbol,
         signalType: signal.type,
         signalDirection: signal.direction,
@@ -422,11 +422,11 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
 
     initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
       if (!historicalData || historicalData.length === 0) {
-        logger.info(`No historical data provided for Volume Analysis strategy on ${config.symbol}`);
+        logger.info(`Aucune donnée historique fournie pour la stratégie Volume Analysis sur ${config.symbol}`);
         return;
       }
 
-      logger.info(`Initializing Volume Analysis strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+      logger.info(`Initialisation de la stratégie Volume Analysis avec ${historicalData.length} points de données historiques pour ${config.symbol}`);
 
       // Reset state
       state.priceHistory = [];
@@ -481,7 +481,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
         }
       }
 
-      logger.info(`Volume Analysis strategy initialized for ${config.symbol}`, {
+      logger.info(`Stratégie Volume Analysis initialisée pour ${config.symbol}`, {
         symbol: config.symbol,
         priceHistoryLength: state.priceHistory.length,
         volumeHistoryLength: state.volumeHistory.length,

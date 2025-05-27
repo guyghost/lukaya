@@ -72,20 +72,20 @@ export const createDydxClient = (config: DydxClientConfig): {
   // Helper functions
   const initializeClient = async (): Promise<CompositeClient> => {
     if (!context.compositeClient) {
-      logger.debug("Initializing dYdX composite client");
+      logger.debug("Initialisation du client composite dYdX");
       context.compositeClient = await CompositeClient.connect(config.network);
       
-      // Load market configs
+      // Charger les configurations de marché
       try {
         const marketsResponse = await context.compositeClient.indexerClient.markets.getPerpetualMarkets();
         if (marketsResponse.markets) {
           for (const [symbol, market] of Object.entries(marketsResponse.markets)) {
             context.markets.set(symbol, market);
           }
-          logger.debug(`Loaded ${context.markets.size} markets from dYdX`);
+          logger.debug(`Chargé ${context.markets.size} marchés depuis dYdX`);
         }
       } catch (error) {
-        logger.error('Failed to load market configurations:', error as Error);
+        logger.error('Échec du chargement des configurations de marché :', error as Error);
       }
     }
     return context.compositeClient;
@@ -93,12 +93,12 @@ export const createDydxClient = (config: DydxClientConfig): {
 
   const getWallet = async (): Promise<LocalWallet> => {
     if (!context.localWallet && config.mnemonic) {
-      logger.debug("Initializing local wallet from mnemonic");
+      logger.debug("Initialisation du portefeuille local à partir de la phrase mnémonique");
       context.localWallet = await LocalWallet.fromMnemonic(config.mnemonic, BECH32_PREFIX);
     }
     
     if (!context.localWallet) {
-      throw new Error('Wallet is not initialized. Please provide a mnemonic.');
+      throw new Error('Le portefeuille n\'est pas initialisé. Veuillez fournir une phrase mnémonique.');
     }
     
     return context.localWallet;
@@ -113,7 +113,7 @@ export const createDydxClient = (config: DydxClientConfig): {
       const wallet = await getWallet();
       
       // Initialize subaccount client
-      logger.debug("Initializing subaccount client");
+      logger.debug("Initialisation du client de sous-compte");
       context.subaccountClient = new SubaccountClient(
         wallet,
         0 // Use the default subaccount (index 0)
@@ -481,25 +481,25 @@ export const createDydxClient = (config: DydxClientConfig): {
       if (context.subscriptions.has(symbol)) return;
 
       try {
-        // Validate that the market exists
+        // Valider que le marché existe
         const client = await getClient();
         const marketResponse = await client.indexerClient.markets.getPerpetualMarkets();
         
         if (!marketResponse.markets || !marketResponse.markets[symbol]) {
-          throw new Error(`Market ${symbol} does not exist`);
+          throw new Error(`Le marché ${symbol} n'existe pas`);
         }
         
-        // Add to subscriptions and begin polling
+        // Ajouter aux abonnements et commencer le polling
         context.subscriptions.add(symbol);
-        logger.info(`Subscribed to market data for ${symbol}`);
+        logger.info(`Abonné aux données de marché pour ${symbol}`);
         
-        // Fetch initial data
+        // Récupérer les données initiales
         await fetchAndCacheMarketData(symbol);
         
-        // Start polling for updates
+        // Démarrer le polling pour les mises à jour
         pollMarketData(symbol);
       } catch (error) {
-        logger.error(`Failed to subscribe to market data for ${symbol}:`, error as Error);
+        logger.error(`Échec de l'abonnement aux données de marché pour ${symbol} :`, error as Error);
         throw error;
       }
     },
@@ -555,36 +555,36 @@ export const createDydxClient = (config: DydxClientConfig): {
   // TradingPort implementation
   const tradingPort: TradingPort = {
     placeOrder: async (orderParams: OrderParams): Promise<Order> => {
-      logger.debug("🎯 DydxClient.placeOrder() called", { 
+      logger.debug("🎯 DydxClient.placeOrder() appelé", { 
         orderParams,
         timestamp: new Date().toISOString()
       });
 
       try {
-        logger.debug("📡 Getting dYdX clients...");
+        logger.debug("📡 Obtention des clients dYdX...");
         const compositeClient = await getClient();
         const subaccountClient = await getSubaccountClient();
-        logger.debug("✅ Clients obtained successfully", {
+        logger.debug("✅ Clients obtenus avec succès", {
           hasCompositeClient: !!compositeClient,
           hasSubaccountClient: !!subaccountClient
         });
         
-        // Get market configuration
-        logger.debug("🏪 Getting market configuration...", { symbol: orderParams.symbol });
+        // Obtenir la configuration du marché
+        logger.debug("🏪 Obtention de la configuration du marché...", { symbol: orderParams.symbol });
         const market = getMarketConfig(orderParams.symbol);
-        logger.debug("✅ Market configuration obtained", { market });
+        logger.debug("✅ Configuration du marché obtenue", { market });
         
-        // Validate order size against market minimum quantums
+        // Valider la taille de l'ordre par rapport au minimum du marché
         const sizeValidation = validateMinimumQuantums(orderParams.symbol, orderParams.size);
         if (!sizeValidation.isValid && sizeValidation.adjustedSize) {
-          logger.warn(`🚨 Order size validation failed for ${orderParams.symbol}: ${sizeValidation.reason}`);
-          logger.info(`📏 Adjusting order size from ${orderParams.size} to ${sizeValidation.adjustedSize}`);
+          logger.warn(`🚨 Validation de la taille de l'ordre échouée pour ${orderParams.symbol} : ${sizeValidation.reason}`);
+          logger.info(`📏 Ajustement de la taille de l'ordre de ${orderParams.size} à ${sizeValidation.adjustedSize}`);
           orderParams.size = sizeValidation.adjustedSize;
         } else if (!sizeValidation.isValid) {
-          throw new Error(`Order size ${orderParams.size} is below minimum requirements for ${orderParams.symbol}: ${sizeValidation.reason}`);
+          throw new Error(`La taille de l'ordre ${orderParams.size} est inférieure aux exigences minimales pour ${orderParams.symbol} : ${sizeValidation.reason}`);
         }
         
-        // Create order execution parameters
+        // Créer les paramètres d'exécution de l'ordre
         const execution = {
           subaccountClient,
           marketId: orderParams.symbol,
@@ -598,22 +598,22 @@ export const createDydxClient = (config: DydxClientConfig): {
           clientId: orderParams.clientId || crypto.randomUUID(),
         };
         
-        logger.debug("🔧 Order execution parameters prepared", { 
+        logger.debug("🔧 Paramètres d'exécution de l'ordre préparés", { 
           execution: {
             ...execution,
-            subaccountClient: "[SubaccountClient]" // Don't log the full client object
+            subaccountClient: "[SubaccountClient]" // Ne pas logger l'objet complet
           }
         });
         
-        // Place order using the subaccount client
-        logger.debug("🚀 Calling compositeClient.placeOrder()...", { 
+        // Placer l'ordre avec le client subaccount
+        logger.debug("🚀 Appel de compositeClient.placeOrder()...", { 
           symbol: orderParams.symbol,
           type: mapOrderType(orderParams.type),
           side: mapOrderSide(orderParams.side),
           price: orderParams.price || 0,
           size: orderParams.size,
           clientId: orderParams.clientId || 1,
-          timeInForce: orderParams.type === OrderType.MARKET ? "MARKET_ORDER" : mapTimeInForce(orderParams.timeInForce)
+          timeInForce: orderParams.type === OrderType.MARKET ? "ORDRE_MARCHE" : mapTimeInForce(orderParams.timeInForce)
         });
         
         // Pour les ordres au marché, ne pas spécifier timeInForce
@@ -628,32 +628,32 @@ export const createDydxClient = (config: DydxClientConfig): {
           orderParams.type === OrderType.MARKET ? undefined : mapTimeInForce(orderParams.timeInForce)
         );
 
-        logger.debug("✅ compositeClient.placeOrder() completed", { 
-          response: response ? "Response received" : "No response",
+        logger.debug("✅ compositeClient.placeOrder() terminé", { 
+          response: response ? "Réponse reçue" : "Aucune réponse",
           responseKeys: response ? Object.keys(response) : "N/A"
         });
 
-        // Get the order details from indexer
+        // Obtenir les détails de l'ordre depuis l'indexeur
         const clientId = execution.clientId;
         const wallet = await getWallet();
         
-        logger.debug("👛 Wallet obtained", { 
-          address: wallet.address ? `${wallet.address.substring(0, 10)}...` : "No address",
+        logger.debug("👛 Portefeuille obtenu", { 
+          address: wallet.address ? `${wallet.address.substring(0, 10)}...` : "Aucune adresse",
           hasWallet: !!wallet
         });
 
-        // Wait a short period for the order to be indexed
-        logger.debug("⏳ Waiting 1 second for order indexing...");
+        // Attendre un court instant pour l'indexation de l'ordre
+        logger.debug("⏳ Attente de 1 seconde pour l'indexation de l'ordre...");
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Fetch the order by client ID
-        logger.debug("🔍 Fetching order from indexer...", { clientId });
+        // Récupérer l'ordre par client ID
+        logger.debug("🔍 Récupération de l'ordre depuis l'indexeur...", { clientId });
         const client = await getClient();
         const subaccountInfo = await getDefaultSubaccount();
         
-        logger.debug("📊 Subaccount info obtained", { 
+        logger.debug("📊 Infos du sous-compte obtenues", { 
           subaccountNumber: subaccountInfo.subaccountNumber,
-          walletAddress: wallet.address ? `${wallet.address.substring(0, 10)}...` : "No address"
+          walletAddress: wallet.address ? `${wallet.address.substring(0, 10)}...` : "Aucune adresse"
         });
         
         const ordersResponse = await client.indexerClient.account.getSubaccountOrders(
@@ -661,40 +661,40 @@ export const createDydxClient = (config: DydxClientConfig): {
           subaccountInfo.subaccountNumber
         );
 
-        logger.debug("📋 Orders response received", { 
+        logger.debug("📋 Réponse des ordres reçue", { 
           ordersCount: ordersResponse.orders?.length || 0,
           hasOrders: !!(ordersResponse.orders && ordersResponse.orders.length > 0)
         });
 
         // Correction : trouver l'ordre par clientId (pas juste prendre le premier)
         if (ordersResponse.orders && ordersResponse.orders.length > 0) {
-          logger.debug("🔍 Searching for order by clientId...", { 
+          logger.debug("🔍 Recherche de l'ordre par clientId...", { 
             clientId,
             availableClientIds: ordersResponse.orders.map((o: any) => o.clientId)
           });
           
           const foundOrder = ordersResponse.orders.find((o: any) => o.clientId === clientId);
           if (foundOrder) {
-            logger.debug("✅ Order found in indexer", { 
+            logger.debug("✅ Ordre trouvé dans l'indexeur", { 
               orderId: foundOrder.id,
               status: foundOrder.status,
               clientId: foundOrder.clientId
             });
             const mappedOrder = mapDydxOrderToOrder(foundOrder);
-            logger.debug("🔄 Order mapped successfully", { mappedOrder });
+            logger.debug("🔄 Ordre mappé avec succès", { mappedOrder });
             return mappedOrder;
           } else {
-            logger.warn("⚠️ Order not found by clientId", { 
+            logger.warn("⚠️ Ordre non trouvé par clientId", { 
               searchedClientId: clientId,
               availableOrders: ordersResponse.orders.length
             });
           }
         } else {
-          logger.warn("⚠️ No orders found in response");
+          logger.warn("⚠️ Aucun ordre trouvé dans la réponse");
         }
 
-        // If we can't find the order, create a synthetic one
-        logger.debug("🔧 Creating synthetic order (order not found in indexer)");
+        // Si on ne trouve pas l'ordre, créer un ordre synthétique
+        logger.debug("🔧 Création d'un ordre synthétique (ordre non trouvé dans l'indexeur)");
         const syntheticOrder = {
           id: "0",
           symbol: orderParams.symbol,
@@ -710,10 +710,10 @@ export const createDydxClient = (config: DydxClientConfig): {
           postOnly: orderParams.postOnly || false,
         };
         
-        logger.debug("✅ Synthetic order created", { syntheticOrder });
+        logger.debug("✅ Ordre synthétique créé", { syntheticOrder });
         return syntheticOrder;
       } catch (error) {
-        logger.error('🚨 Order placement failed:', error as Error);
+        logger.error('🚨 Échec du placement de l\'ordre :', error as Error);
         throw error;
       }
     },
@@ -726,12 +726,12 @@ export const createDydxClient = (config: DydxClientConfig): {
         const subaccountInfo = await getDefaultSubaccount();
         
         // Cancel order by ID
-        logger.debug(`Cancelling order ${symbol}`);
+        logger.debug(`Annulation de l'ordre ${symbol}`);
         await compositeClient.cancelOrder(subaccountClient, 0, OrderFlags.SHORT_TERM, symbol);
         
         return true;
       } catch (error) {
-        logger.error(`Failed to cancel order ${symbol}:`, error as Error);
+        logger.error(`Échec de l'annulation de l'ordre ${symbol} :`, error as Error);
         return false;
       }
     },
@@ -744,7 +744,7 @@ export const createDydxClient = (config: DydxClientConfig): {
         const subaccountInfo = await getDefaultSubaccount();
         if (!subaccountInfo) return null;
         
-        logger.debug(`Fetching order details for ${orderId}`);
+        logger.debug(`Récupération des détails de l'ordre pour ${orderId}`);
         const orderResponse = await client.indexerClient.account.getSubaccountOrders(
           wallet.address || '',
           subaccountInfo.subaccountNumber
@@ -754,7 +754,7 @@ export const createDydxClient = (config: DydxClientConfig): {
         
         return mapDydxOrderToOrder(orderResponse.order);
       } catch (error) {
-        logger.error(`Failed to get order ${orderId}:`, error as Error);
+        logger.error(`Échec de la récupération de l'ordre ${orderId} :`, error as Error);
         return null;
       }
     },
@@ -772,7 +772,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           queryParams.marketId = symbol;
         }
         
-        logger.debug("Fetching open orders", { symbol });
+        logger.debug("Récupération des ordres ouverts", { symbol });
         const ordersResponse = await client.indexerClient.account.getSubaccountOrders(
           wallet.address || '',
           subaccountInfo.subaccountNumber,
@@ -783,7 +783,7 @@ export const createDydxClient = (config: DydxClientConfig): {
         
         return ordersResponse.orders.map(mapDydxOrderToOrder);
       } catch (error) {
-        logger.error('Failed to get open orders:', error as Error);
+        logger.error('Échec de la récupération des ordres ouverts :', error as Error);
         return [];
       }
     },
@@ -798,7 +798,7 @@ export const createDydxClient = (config: DydxClientConfig): {
         }
         
         // Get subaccount info
-        logger.debug("Fetching account balances");
+        logger.debug("Récupération des soldes du compte");
         const subaccountResponse = await client.indexerClient.account.getSubaccounts(wallet.address);
         if (!subaccountResponse?.subaccounts?.length) {
           return {};
@@ -823,7 +823,7 @@ export const createDydxClient = (config: DydxClientConfig): {
         
         return balances;
       } catch (error) {
-        logger.error('Failed to get account balance:', error as Error);
+        logger.error('Échec de la récupération du solde du compte :', error as Error);
         return {};
       }
     }
@@ -831,7 +831,7 @@ export const createDydxClient = (config: DydxClientConfig): {
 
   // Initialize client immediately
   initializeClient().catch(error => {
-    logger.error('Failed to initialize DYDX client:', error as Error);
+    logger.error('Échec de l\'initialisation du client DYDX :', error as Error);
   });
 
   return { marketDataPort, tradingPort };

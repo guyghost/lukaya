@@ -65,7 +65,7 @@ export class BacktestUiAdapter {
       if (strategy) {
         strategies.push(strategy);
       } else {
-        this.logger.warn(`Stratégie non trouvée avec l'ID: ${id}`);
+        this.logger.warn(`Stratégie non trouvée avec l'ID : ${id}`);
       }
     }
     
@@ -158,7 +158,7 @@ export class BacktestUiAdapter {
       fs.writeFileSync(filePath, data);
       this.logger.info(`Résultats exportés avec succès vers ${filePath}`);
     } catch (error) {
-      this.logger.error('Erreur lors de l\'exportation des résultats:', error as Error);
+      this.logger.error("Erreur lors de l'exportation des résultats :", error as Error);
       throw new Error(`Impossible d'exporter les résultats: ${(error as Error).message}`);
     }
   }

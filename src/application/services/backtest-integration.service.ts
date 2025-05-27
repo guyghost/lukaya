@@ -38,7 +38,7 @@ export class BacktestIntegrationService {
     addedToBot: boolean;
     reason?: string;
   }> {
-    this.logger.info(`Validation de la stratégie ${strategy.getName()} avant ajout au bot`);
+    this.logger.info("Validation de la stratégie " + strategy.getName() + " avant ajout au bot");
     
     try {
       // Exécuter le backtest
@@ -64,7 +64,7 @@ export class BacktestIntegrationService {
       const passed = Object.values(validationResults).every(v => v);
       
       if (passed) {
-        this.logger.info(`La stratégie ${strategy.getName()} a passé tous les critères de validation`);
+        this.logger.info("La stratégie " + strategy.getName() + " a passé tous les critères de validation");
         
         try {
           // Ajouter la stratégie au bot de trading
@@ -76,7 +76,7 @@ export class BacktestIntegrationService {
             addedToBot: true
           };
         } catch (error) {
-          this.logger.error(`Erreur lors de l'ajout de la stratégie au bot:`, error as Error);
+          this.logger.error("Erreur lors de l'ajout de la stratégie au bot :", error as Error);
           
           return {
             passed: true,
@@ -116,7 +116,7 @@ export class BacktestIntegrationService {
         };
       }
     } catch (error) {
-      this.logger.error(`Erreur lors de la validation de la stratégie:`, error as Error);
+      this.logger.error("Erreur lors de la validation de la stratégie :", error as Error);
       
       return {
         passed: false,
@@ -162,7 +162,7 @@ export class BacktestIntegrationService {
     
     // Évaluer chaque stratégie active
     for (const strategy of activeStrategies) {
-      this.logger.info(`Validation de la stratégie active: ${strategy.getName()}`);
+      this.logger.info("Validation de la stratégie active : " + strategy.getName());
       
       try {
         const result = await this.backtestService.runBacktest(strategy, config);
@@ -199,7 +199,7 @@ export class BacktestIntegrationService {
           };
         }
       } catch (error) {
-        this.logger.error(`Erreur lors de la validation de la stratégie ${strategy.getName()}:`, error as Error);
+        this.logger.error("Erreur lors de la validation de la stratégie " + strategy.getName() + " :", error as Error);
         
         // En cas d'erreur, suggérer une vérification manuelle
         recommendations[strategy.getId()] = {
