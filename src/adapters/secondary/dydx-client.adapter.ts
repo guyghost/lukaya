@@ -253,31 +253,97 @@ export const createDydxClient = (config: DydxClientConfig): {
   };
   
   const mapOrderSide = (side: OrderSide): DydxOrderSide => {
+    logger.info("🔄 TRAÇAGE MAPPING - mapOrderSide() appelé :", {
+      input_side: side,
+      input_side_value: side.toString(),
+      OrderSide_BUY: OrderSide.BUY,
+      OrderSide_SELL: OrderSide.SELL
+    });
+
+    let result: DydxOrderSide;
     switch (side) {
       case OrderSide.BUY:
-        return DydxOrderSide.BUY;
+        result = DydxOrderSide.BUY;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderSide.BUY :", {
+          input: side,
+          output: result,
+          DydxOrderSide_BUY: DydxOrderSide.BUY
+        });
+        break;
       case OrderSide.SELL:
-        return DydxOrderSide.SELL;
+        result = DydxOrderSide.SELL;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderSide.SELL :", {
+          input: side,
+          output: result,
+          DydxOrderSide_SELL: DydxOrderSide.SELL
+        });
+        break;
       default:
+        logger.error(`🚨 TRAÇAGE MAPPING - Valeur non supportée : ${side}`);
         throw new Error(`Unsupported order side: ${side}`);
     }
+    
+    logger.info("🎯 TRAÇAGE MAPPING - mapOrderSide() résultat final :", {
+      input: side,
+      output: result,
+      are_equal: side === result
+    });
+    
+    return result;
   };
   
   const mapOrderType = (type: OrderType): DydxOrderType => {
+    logger.info("🔄 TRAÇAGE MAPPING - mapOrderType() appelé :", {
+      input_type: type,
+      input_type_value: type.toString(),
+      OrderType_MARKET: OrderType.MARKET,
+      OrderType_LIMIT: OrderType.LIMIT
+    });
+
+    let result: DydxOrderType;
     switch (type) {
       case OrderType.LIMIT:
-        return DydxOrderType.LIMIT;
+        result = DydxOrderType.LIMIT;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderType.LIMIT :", {
+          input: type,
+          output: result
+        });
+        break;
       case OrderType.MARKET:
-        return DydxOrderType.MARKET;
+        result = DydxOrderType.MARKET;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderType.MARKET :", {
+          input: type,
+          output: result
+        });
+        break;
       case OrderType.STOP:
-        return DydxOrderType.STOP_LIMIT;
+        result = DydxOrderType.STOP_LIMIT;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderType.STOP_LIMIT :", {
+          input: type,
+          output: result
+        });
+        break;
       case OrderType.STOP_LIMIT:
-        return DydxOrderType.STOP_LIMIT;
+        result = DydxOrderType.STOP_LIMIT;
+        logger.info("✅ TRAÇAGE MAPPING - Mappé vers DydxOrderType.STOP_LIMIT :", {
+          input: type,
+          output: result
+        });
+        break;
       case OrderType.TRAILING_STOP:
+        logger.error(`🚨 TRAÇAGE MAPPING - Type non supporté : ${type}`);
         throw new Error(`Trailing stop orders not supported by DYDX API`);
       default:
+        logger.error(`🚨 TRAÇAGE MAPPING - Type non reconnu : ${type}`);
         throw new Error(`Unsupported order type: ${type}`);
     }
+    
+    logger.info("🎯 TRAÇAGE MAPPING - mapOrderType() résultat final :", {
+      input: type,
+      output: result
+    });
+    
+    return result;
   };
 
   const mapTimeInForce = (timeInForce?: TimeInForce): OrderTimeInForce => {
@@ -555,9 +621,27 @@ export const createDydxClient = (config: DydxClientConfig): {
   // TradingPort implementation
   const tradingPort: TradingPort = {
     placeOrder: async (orderParams: OrderParams): Promise<Order> => {
-      logger.debug("🎯 DydxClient.placeOrder() appelé", { 
-        orderParams,
+      logger.info("🎯 DydxClient.placeOrder() appelé", { 
+        orderParams: {
+          symbol: orderParams.symbol,
+          side: orderParams.side,
+          type: orderParams.type,
+          size: orderParams.size,
+          price: orderParams.price,
+          timeInForce: orderParams.timeInForce,
+          postOnly: orderParams.postOnly,
+          reduceOnly: orderParams.reduceOnly,
+          clientId: orderParams.clientId
+        },
         timestamp: new Date().toISOString()
+      });
+
+      // Log détaillé des valeurs d'entrée
+      logger.info("📋 TRAÇAGE ORDRE - Paramètres d'entrée :", {
+        "side_original": orderParams.side,
+        "type_original": orderParams.type,
+        "side_string": orderParams.side.toString(),
+        "type_string": orderParams.type.toString()
       });
 
       try {
@@ -585,12 +669,26 @@ export const createDydxClient = (config: DydxClientConfig): {
         }
         
         // Créer les paramètres d'exécution de l'ordre
+        const mappedSide = mapOrderSide(orderParams.side);
+        const mappedType = mapOrderType(orderParams.type);
+        const mappedTimeInForce = mapTimeInForce(orderParams.timeInForce);
+        
+        // Log détaillé des transformations de mapping
+        logger.info("🔄 TRAÇAGE ORDRE - Transformations de mapping :", {
+          "side_avant_mapping": orderParams.side,
+          "side_apres_mapping": mappedSide,
+          "type_avant_mapping": orderParams.type,
+          "type_apres_mapping": mappedType,
+          "timeInForce_avant_mapping": orderParams.timeInForce,
+          "timeInForce_apres_mapping": mappedTimeInForce
+        });
+        
         const execution = {
           subaccountClient,
           marketId: orderParams.symbol,
-          side: mapOrderSide(orderParams.side),
-          type: mapOrderType(orderParams.type),
-          timeInForce: mapTimeInForce(orderParams.timeInForce),
+          side: mappedSide,
+          type: mappedType,
+          timeInForce: mappedTimeInForce,
           price: orderParams.price?.toString() || '0',
           size: orderParams.size.toString(),
           postOnly: orderParams.postOnly || false,
@@ -598,35 +696,74 @@ export const createDydxClient = (config: DydxClientConfig): {
           clientId: orderParams.clientId || crypto.randomUUID(),
         };
         
-        logger.debug("🔧 Paramètres d'exécution de l'ordre préparés", { 
-          execution: {
-            ...execution,
-            subaccountClient: "[SubaccountClient]" // Ne pas logger l'objet complet
-          }
+        logger.info("🔧 TRAÇAGE ORDRE - Paramètres d'exécution préparés :", { 
+          marketId: execution.marketId,
+          side: execution.side,
+          type: execution.type,
+          price: execution.price,
+          size: execution.size,
+          timeInForce: execution.timeInForce,
+          postOnly: execution.postOnly,
+          reduceOnly: execution.reduceOnly,
+          clientId: execution.clientId
         });
         
         // Placer l'ordre avec le client subaccount
-        logger.debug("🚀 Appel de compositeClient.placeOrder()...", { 
+        const finalSide = mapOrderSide(orderParams.side);
+        const finalType = mapOrderType(orderParams.type);
+        const finalTimeInForce = orderParams.type === OrderType.MARKET ? undefined : mapTimeInForce(orderParams.timeInForce);
+        
+        logger.info("🚀 TRAÇAGE ORDRE - Appel de compositeClient.placeOrder() avec :", { 
           symbol: orderParams.symbol,
-          type: mapOrderType(orderParams.type),
-          side: mapOrderSide(orderParams.side),
+          type: finalType,
+          side: finalSide,
           price: orderParams.price || 0,
           size: orderParams.size,
           clientId: orderParams.clientId || 1,
-          timeInForce: orderParams.type === OrderType.MARKET ? "ORDRE_MARCHE" : mapTimeInForce(orderParams.timeInForce)
+          timeInForce: finalTimeInForce,
+          "est_ordre_marche": orderParams.type === OrderType.MARKET
         });
         
+        // Log complet avant l'appel API
+        logger.info("🎯 TRAÇAGE ORDRE - Valeurs EXACTES passées à compositeClient.placeOrder() :", {
+          arg1_subaccountClient: "[SubaccountClient]",
+          arg2_symbol: orderParams.symbol,
+          arg3_finalType: finalType,
+          arg3_finalType_enum_value: Object.keys(DydxOrderType)[Object.values(DydxOrderType).indexOf(finalType)],
+          arg4_finalSide: finalSide,
+          arg4_finalSide_enum_value: Object.keys(DydxOrderSide)[Object.values(DydxOrderSide).indexOf(finalSide)],
+          arg5_price: orderParams.price || 0,
+          arg6_size: orderParams.size,
+          arg7_clientId: orderParams.clientId || 1,
+          arg8_finalTimeInForce: finalTimeInForce,
+          arg8_finalTimeInForce_enum_value: finalTimeInForce ? Object.keys(OrderTimeInForce)[Object.values(OrderTimeInForce).indexOf(finalTimeInForce)] : "undefined"
+        });
+
+        // Vérification des enum values
+        logger.info("🔍 TRAÇAGE ORDRE - Vérification des enum values :", {
+          DydxOrderSide_BUY: DydxOrderSide.BUY,
+          DydxOrderSide_SELL: DydxOrderSide.SELL,
+          DydxOrderType_MARKET: DydxOrderType.MARKET,
+          DydxOrderType_LIMIT: DydxOrderType.LIMIT,
+          finalSide_is_BUY: finalSide === DydxOrderSide.BUY,
+          finalSide_is_SELL: finalSide === DydxOrderSide.SELL,
+          finalType_is_MARKET: finalType === DydxOrderType.MARKET,
+          finalType_is_LIMIT: finalType === DydxOrderType.LIMIT
+        });
+
         // Pour les ordres au marché, ne pas spécifier timeInForce
+        logger.info("🚀 TRAÇAGE ORDRE - APPEL IMMINENT de compositeClient.placeOrder()...");
         const response = await compositeClient.placeOrder(
           subaccountClient,
           orderParams.symbol,
-          mapOrderType(orderParams.type),
-          mapOrderSide(orderParams.side),
+          finalType,
+          finalSide,
           orderParams.price || 0,
           orderParams.size,
           orderParams.clientId || 1,
-          orderParams.type === OrderType.MARKET ? undefined : mapTimeInForce(orderParams.timeInForce)
+          finalTimeInForce
         );
+        logger.info("✅ TRAÇAGE ORDRE - compositeClient.placeOrder() TERMINÉ");
 
         logger.debug("✅ compositeClient.placeOrder() terminé", { 
           response: response ? "Réponse reçue" : "Aucune réponse",
