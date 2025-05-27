@@ -24,11 +24,12 @@ export class BacktestUiAdapter {
    */
   getAvailableStrategies(): Array<{ id: string; name: string; description?: string }> {
     const strategies = this.strategyService.getAllStrategies();
-    return Object.values(strategies).map((strategy: Strategy) => {
-      const config = strategy.getConfig();
+    return Object.values(strategies).map((strategy: unknown) => {
+      const typedStrategy = strategy as Strategy;
+      const config = typedStrategy.getConfig();
       return {
-        id: strategy.getId(),
-        name: strategy.getName(),
+        id: typedStrategy.getId(),
+        name: typedStrategy.getName(),
         description: config.description
       };
     });

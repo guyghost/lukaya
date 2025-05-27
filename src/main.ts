@@ -7,11 +7,12 @@
 import { loadConfig, getNetworkFromString } from "./infrastructure/config/enhanced-config";
 import { initializeLogger, createContextualLogger } from "./infrastructure/logging/enhanced-logger";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
-import { createTradingBotService } from "./application/services/trading-bot.service";
+import { createTradingBotService, TradingBotService } from "./application/services/trading-bot.service";
 import { StrategyFactory } from "./adapters/strategies";
 import { ServiceStatus, StrategyType } from "./shared/enums";
 import { Result } from "./shared/types";
 import { result } from "./shared/utils";
+import { AppConfig } from "./shared/interfaces/config.interface";
 
 // Interface pour l'application principale
 interface LukayaApp {
@@ -27,8 +28,8 @@ interface LukayaApp {
 class LukayaTradingApp implements LukayaApp {
   public status: ServiceStatus = ServiceStatus.STOPPED;
   private logger = createContextualLogger('LukayaApp');
-  private tradingBot: any;
-  private config: any;
+  private tradingBot!: TradingBotService; // Définitive assignment assertion
+  private config!: AppConfig; // Définitive assignment assertion
 
   constructor() {
     this.setupProcessHandlers();
@@ -182,32 +183,32 @@ class LukayaTradingApp implements LukayaApp {
         {
           pollInterval: this.config.trading.pollInterval,
           positionAnalysisInterval: this.config.trading.positionAnalysisInterval,
-          maxFundsPerOrder: this.config.trading.maxCapitalPerTrade,
+          maxFundsPerOrder: this.config.trading.maxFundsPerOrder,
           riskConfig: {
             maxRiskPerTrade: this.config.trading.riskPerTrade,
             stopLossPercent: this.config.trading.stopLossPercent,
             accountSize: this.config.trading.defaultAccountSize,
             maxLeverage: this.config.trading.maxLeverage,
-            maxOpenPositions: this.config.actors.riskManager.maxOpenPositions,
+            maxOpenPositions: this.config.actors?.riskManager?.maxOpenPositions ?? 3,
             maxPositionSize: this.config.trading.maxCapitalPerTrade,
           },
           strategyConfig: {
-            autoAdjustWeights: this.config.actors.strategyManager.autoAdjustWeights,
-            maxActiveStrategies: this.config.actors.strategyManager.maxActiveStrategies,
-            conflictResolutionMode: this.config.actors.strategyManager.conflictResolutionMode,
-            optimizationEnabled: this.config.actors.strategyManager.optimizationEnabled,
+            autoAdjustWeights: this.config.actors?.strategyManager?.autoAdjustWeights ?? true,
+            maxActiveStrategies: this.config.actors?.strategyManager?.maxActiveStrategies ?? 4,
+            conflictResolutionMode: this.config.actors?.strategyManager?.conflictResolutionMode ?? 'performance_weighted',
+            optimizationEnabled: this.config.actors?.strategyManager?.optimizationEnabled ?? true,
           },
           performanceConfig: {
-            historyLength: this.config.actors.performanceTracker.historyLength,
-            trackOpenPositions: this.config.actors.performanceTracker.trackOpenPositions,
-            realTimeUpdates: this.config.actors.performanceTracker.realTimeUpdates,
-            calculationInterval: this.config.actors.performanceTracker.calculationInterval,
+            historyLength: this.config.actors?.performanceTracker?.historyLength ?? 100,
+            trackOpenPositions: this.config.actors?.performanceTracker?.trackOpenPositions ?? true,
+            realTimeUpdates: this.config.actors?.performanceTracker?.realTimeUpdates ?? true,
+            calculationInterval: this.config.actors?.performanceTracker?.calculationInterval ?? 300000,
           },
           takeProfitConfig: {
-            enabled: this.config.takeProfit.enabled,
-            profitTiers: this.config.takeProfit.profitTiers,
-            cooldownPeriod: this.config.takeProfit.cooldownPeriod,
-            trailingMode: this.config.takeProfit.trailingMode,
+            enabled: this.config.takeProfit?.enabled ?? false,
+            profitTiers: this.config.takeProfit?.profitTiers ?? [],
+            cooldownPeriod: this.config.takeProfit?.cooldownPeriod ?? 600000,
+            trailingMode: this.config.takeProfit?.trailingMode ?? false,
           },
           takeProfitIntegratorConfig: {
             priceCheckInterval: 30 * 1000,
@@ -281,7 +282,7 @@ class LukayaTradingApp implements LukayaApp {
           // Créer la stratégie avec le type enum
           const strategy = await strategyFactory.createStrategy(
             strategyType,
-            strategyConfig.parameters
+            strategyConfig.parameters as any // Cast to any to handle the Record<string, unknown> issue
           );
 
           this.tradingBot.addStrategy(strategy);

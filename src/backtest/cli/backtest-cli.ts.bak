@@ -1,10 +1,25 @@
 import { BacktestUiAdapter } from '../../adapters/primary/backtest-ui.adapter';
 import { BacktestConfig } from '../models/backtest.model';
 import { createContextualLogger } from '../../infrastructure/logging/enhanced-logger';
-import { createStrategyService } from '../../domain/services/strategy.service';
-import { ValidationError, errorHandler } from '../../shared/errors';
-import { Result } from '../../shared/types';
-import { result } from '../../shared/utils';
+import { cre/**
+ * Optimise les paramètres d'une stratégie
+ */
+  private async optimizeStrategy(args: string[]): Promise<Result<void>> {
+    try {
+      const options = this.parseArgs(args);
+      
+      // Vérifier les options obligatoires
+      if (!options.strategy) {
+        return result.error(new ValidationError('L\'option --strategy est requise'));
+      }
+      
+      if (!options.config) {
+        return result.error(new ValidationError('L\'option --config est requise'));
+      }
+      
+      if (!options.params) {
+        return result.error(new ValidationError('L\'option --params est requise'));
+      } } from '../../domain/services/strategy.service';
 import fs from 'fs';
 import path from 'path';
 
@@ -58,35 +73,17 @@ export class BacktestCli {
           this.listStrategies();
           break;
           
-        case 'run': {
-          const result = await this.runBacktest(args);
-          if (!result.success) {
-            this.logger.error(result.message || 'Erreur lors de l\'exécution du backtest');
-            console.error(`Erreur: ${result.message}`);
-            process.exit(1);
-          }
+        case 'run':
+          await this.runBacktest(args);
           break;
-        }
           
-        case 'compare': {
-          const result = await this.compareStrategies(args);
-          if (!result.success) {
-            this.logger.error(result.message || 'Erreur lors de la comparaison des stratégies');
-            console.error(`Erreur: ${result.message}`);
-            process.exit(1);
-          }
+        case 'compare':
+          await this.compareStrategies(args);
           break;
-        }
           
-        case 'optimize': {
-          const result = await this.optimizeStrategy(args);
-          if (!result.success) {
-            this.logger.error(result.message || 'Erreur lors de l\'optimisation de la stratégie');
-            console.error(`Erreur: ${result.message}`);
-            process.exit(1);
-          }
+        case 'optimize':
+          await this.optimizeStrategy(args);
           break;
-        }
           
         default:
           console.log(`Commande inconnue: ${command}`);
@@ -160,16 +157,16 @@ export class BacktestCli {
   /**
    * Exécute un backtest
    */
-  private async runBacktest(args: string[]): Promise<Result<void>> {
+  private async runBacktest(args: string[]): Promise<void> {
     const options = this.parseArgs(args);
     
     // Vérifier les options obligatoires
     if (!options.strategy) {
-      return errorHandler.validationError('L\'option --strategy est requise');
+      throw new Error('L\'option --strategy est requise');
     }
     
     if (!options.config) {
-      return errorHandler.validationError('L\'option --config est requise');
+      throw new Error('L\'option --config est requise');
     }
     
     // Charger la configuration
@@ -181,45 +178,43 @@ export class BacktestCli {
     
     // Exécuter le backtest
     this.logger.info(`Exécution du backtest pour la stratégie ${options.strategy}`);
-    const backtestResult = await this.backtestAdapter.runBacktest(options.strategy, config);
+    const result = await this.backtestAdapter.runBacktest(options.strategy, config);
     
     // Déterminer le format de sortie
     const format = options.format || 'report';
     
     if (format === 'json') {
-      console.log(JSON.stringify(backtestResult, null, 2));
+      console.log(JSON.stringify(result, null, 2));
     } else {
-      const report = this.backtestAdapter.generateBacktestReport(backtestResult);
+      const report = this.backtestAdapter.generateBacktestReport(result);
       console.log(report);
     }
     
     // Sauvegarder les résultats si demandé
     if (options.output) {
       if (format === 'json') {
-        this.backtestAdapter.exportBacktestResults(backtestResult, options.output);
+        this.backtestAdapter.exportBacktestResults(result, options.output);
       } else {
-        const report = this.backtestAdapter.generateBacktestReport(backtestResult);
+        const report = this.backtestAdapter.generateBacktestReport(result);
         fs.writeFileSync(options.output, report);
       }
       console.log(`Résultats sauvegardés dans ${options.output}`);
     }
-    
-    return result.success(undefined, "Backtest exécuté avec succès");
   }
   
   /**
    * Compare plusieurs stratégies
    */
-  private async compareStrategies(args: string[]): Promise<Result<void>> {
+  private async compareStrategies(args: string[]): Promise<void> {
     const options = this.parseArgs(args);
     
     // Vérifier les options obligatoires
     if (!options.strategies) {
-      return errorHandler.validationError('L\'option --strategies est requise');
+      throw new Error('L\'option --strategies est requise');
     }
     
     if (!options.config) {
-      return errorHandler.validationError('L\'option --config est requise');
+      throw new Error('L\'option --config est requise');
     }
     
     // Charger la configuration
@@ -257,27 +252,25 @@ export class BacktestCli {
       fs.writeFileSync(options.output, JSON.stringify(results, null, 2));
       console.log(`Résultats sauvegardés dans ${options.output}`);
     }
-    
-    return result.success(undefined, "Comparaison exécutée avec succès");
   }
   
   /**
    * Optimise les paramètres d'une stratégie
    */
-  private async optimizeStrategy(args: string[]): Promise<Result<void>> {
+  private async optimizeStrategy(args: string[]): Promise<void> {
     const options = this.parseArgs(args);
     
     // Vérifier les options obligatoires
     if (!options.strategy) {
-      return errorHandler.validationError('L\'option --strategy est requise');
+      throw new Error('L\'option --strategy est requise');
     }
     
     if (!options.config) {
-      return errorHandler.validationError('L\'option --config est requise');
+      throw new Error('L\'option --config est requise');
     }
     
     if (!options.params) {
-      return errorHandler.validationError('L\'option --params est requise');
+      throw new Error('L\'option --params est requise');
     }
     
     // Charger la configuration
@@ -310,8 +303,6 @@ export class BacktestCli {
       fs.writeFileSync(options.output, JSON.stringify(results, null, 2));
       console.log(`Résultats sauvegardés dans ${options.output}`);
     }
-    
-    return result.success(undefined, "Optimisation exécutée avec succès");
   }
 }
 

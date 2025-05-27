@@ -152,7 +152,8 @@ export const createMarketActorDefinition = (
                 price: marketData.price, 
                 bid: marketData.bid, 
                 ask: marketData.ask,
-                avgPollingTime: enrichedData.metrics.totalTickDuration / enrichedData.metrics.tickCount
+                avgPollingTime: enrichedData.metrics ? 
+                  enrichedData.metrics.totalTickDuration / enrichedData.metrics.tickCount : 0
               });
             }
           }

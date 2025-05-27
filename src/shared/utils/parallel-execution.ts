@@ -1,6 +1,9 @@
 /**
  * Utilitaire pour exécuter des tâches en parallèle avec limitation
  */
+import { Result } from '../types';
+import { result } from './index';
+import { resultUtils } from './result-utils';
 
 /**
  * Exécute des promesses en parallèle avec une limite de concurrence
@@ -82,6 +85,39 @@ export async function processBatchesInParallel<T, R>(
       batch.map(item => processor(item))
     );
     return batchResults;
+  });
+  
+  // Exécuter les lots en parallèle avec limite
+  const batchResults = await executeWithConcurrencyLimit(batchTasks, concurrencyLimit);
+  
+  // Aplatir les résultats
+  return batchResults.flat();
+}
+
+/**
+ * Version améliorée qui utilise le pattern Result
+ * Exécute des promesses en lots parallèles et renvoie des Results
+ * @param items Éléments à traiter
+ * @param processor Fonction qui traite chaque élément et retourne une promesse
+ * @param batchSize Taille de chaque lot
+ * @param concurrencyLimit Nombre maximum de lots exécutés en parallèle
+ * @returns Résultats des promesses encapsulés dans des Results
+ */
+export async function processBatchesWithResults<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  batchSize: number = 5,
+  concurrencyLimit: number = 3
+): Promise<Result<R>[]> {
+  // Grouper les éléments par lot
+  const batches = batchItems(items, batchSize);
+  
+  // Créer des tâches pour chaque lot
+  const batchTasks = batches.map(batch => async () => {
+    const batchPromises = batch.map(item => 
+      resultUtils.fromPromise(processor(item))
+    );
+    return await Promise.all(batchPromises);
   });
   
   // Exécuter les lots en parallèle avec limite
