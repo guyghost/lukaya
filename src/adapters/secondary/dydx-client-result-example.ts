@@ -64,7 +64,7 @@ export const fetchMarketDataWithResult = async (
   if (cachedData) {
     // Log the error but return cached data as a success
     console.warn(`Using cached market data for ${symbol} due to fetch error:`, result.error);
-    return resultUtils.success(cachedData, "Using cached data as fallback");
+    return { success: true, data: cachedData, message: "Using cached data as fallback" };
   }
   
   // No cached data and fetch failed
