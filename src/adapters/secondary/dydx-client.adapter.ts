@@ -673,7 +673,24 @@ export const createDydxClient = (config: DydxClientConfig): {
         const mappedType = mapOrderType(orderParams.type);
         const mappedTimeInForce = mapTimeInForce(orderParams.timeInForce);
         
-        // Log détaillé des transformations de mapping
+        // S'assurer que le prix est toujours renseigné
+        let priceToUse: number | undefined = orderParams.price;
+        if (
+          (orderParams.type === OrderType.LIMIT || orderParams.type === OrderType.STOP_LIMIT) &&
+          (priceToUse === undefined || priceToUse === null)
+        ) {
+          throw new Error("Le prix doit être renseigné pour les ordres LIMIT ou STOP_LIMIT.");
+        }
+        if (
+          orderParams.type === OrderType.MARKET &&
+          (priceToUse === undefined || priceToUse === null)
+        ) {
+          // Récupérer le dernier prix du marché si non fourni
+          const latestMarketData = await marketDataPort.getLatestMarketData(orderParams.symbol);
+          priceToUse = latestMarketData.price;
+          logger.info("💡 Prix du marché utilisé pour l'ordre MARKET :", { symbol: orderParams.symbol, price: priceToUse });
+        }
+        
         logger.info("🔄 TRAÇAGE ORDRE - Transformations de mapping :", {
           "side_avant_mapping": orderParams.side,
           "side_apres_mapping": mappedSide,
@@ -689,7 +706,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           side: mappedSide,
           type: mappedType,
           timeInForce: mappedTimeInForce,
-          price: orderParams.price?.toString() || '0',
+          price: priceToUse?.toString() || '0',
           size: orderParams.size.toString(),
           postOnly: orderParams.postOnly || false,
           reduceOnly: orderParams.reduceOnly || false,
@@ -717,7 +734,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           symbol: orderParams.symbol,
           type: finalType,
           side: finalSide,
-          price: orderParams.price || 0,
+          price: priceToUse || 0,
           size: orderParams.size,
           clientId: orderParams.clientId || 1,
           timeInForce: finalTimeInForce,
@@ -732,7 +749,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           arg3_finalType_enum_value: Object.keys(DydxOrderType)[Object.values(DydxOrderType).indexOf(finalType)],
           arg4_finalSide: finalSide,
           arg4_finalSide_enum_value: Object.keys(DydxOrderSide)[Object.values(DydxOrderSide).indexOf(finalSide)],
-          arg5_price: orderParams.price || 0,
+          arg5_price: priceToUse || 0,
           arg6_size: orderParams.size,
           arg7_clientId: orderParams.clientId || 1,
           arg8_finalTimeInForce: finalTimeInForce,
@@ -758,7 +775,7 @@ export const createDydxClient = (config: DydxClientConfig): {
           orderParams.symbol,
           finalType,
           finalSide,
-          orderParams.price || 0,
+          priceToUse || 0,
           orderParams.size,
           orderParams.clientId || 1,
           finalTimeInForce
