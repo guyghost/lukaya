@@ -65,7 +65,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
   };
 
   // ID et nom de la stratégie
-  const id = `volume-analysis-${config.symbol}-${config.volumeMALength}`;
+  const id = `volume-analysis-${config.symbol}`;
   const name = `Volume Analysis (${config.volumeMALength})`;
 
   // Paramètres par défaut

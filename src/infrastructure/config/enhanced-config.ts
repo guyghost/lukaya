@@ -16,7 +16,7 @@ import {
 
 // Schema de validation pour les stratégies
 const strategyConfigSchema = z.object({
-  type: z.enum(['rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern']), // Removed 'simple-ma'
+  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern']), // Added rsi-div, kept rsi-divergence for backwards compatibility
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).default(0.25),
   parameters: z.record(z.unknown()).default({}),
@@ -184,7 +184,7 @@ export const loadConfig = (): ConfigType => {
     },
     strategies: symbols.map(symbol => [
       {
-        type: "rsi-divergence" as const,
+        type: "rsi-div" as const,
         enabled: process.env.RSI_DIVERGENCE_ENABLED !== 'false',
         weight: Number(process.env.RSI_DIVERGENCE_WEIGHT || 0.25),
         parameters: {

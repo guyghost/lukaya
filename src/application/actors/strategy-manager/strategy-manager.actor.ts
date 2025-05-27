@@ -4,7 +4,8 @@ import {
   StrategyManagerState, 
   StrategyManagerConfig,
   StrategyEntry,
-  StrategyPerformance
+  StrategyPerformance,
+  MarketDataCacheEntry
 } from "./strategy-manager.model";
 import { createContextualLogger } from "../../../infrastructure/logging/enhanced-logger";
 import { StrategySignal } from "../../../domain/models/strategy.model";
@@ -186,14 +187,50 @@ export const createStrategyManagerActorDefinition = (
           const entrySignals = signalList.filter(s => s.signal.type === 'entry');
           
           if (exitSignals.length > 0) {
-            exitSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+            // Prioriser les signaux de sortie, mais en tenant compte de leur poids si plusieurs
+            if (exitSignals.length > 1) {
+              // Si plusieurs signaux de sortie contradictoires, sélectionner ceux avec le poids le plus élevé
+              const exitLongSignals = exitSignals.filter(s => s.signal.direction === 'long');
+              const exitShortSignals = exitSignals.filter(s => s.signal.direction === 'short');
+              
+              if (exitLongSignals.length > 0 && exitShortSignals.length > 0) {
+                // Signaux contradictoires, choisir en fonction du poids
+                const longWeight = exitLongSignals.reduce((sum, s) => sum + s.weight, 0);
+                const shortWeight = exitShortSignals.reduce((sum, s) => sum + s.weight, 0);
+                
+                if (longWeight > shortWeight) {
+                  exitLongSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+                } else {
+                  exitShortSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+                }
+              } else {
+                // Tous les signaux de sortie sont dans la même direction
+                exitSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+              }
+            } else {
+              // Un seul signal de sortie, l'utiliser
+              exitSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+            }
           } else {
-            // For entries, use performance weighted approach
+            // Pour les signaux d'entrée, utiliser une approche pondérée par performance 
+            // et améliorer avec la gestion des risques
             const longWeight = longSignals.reduce((sum, s) => sum + s.weight, 0);
             const shortWeight = shortSignals.reduce((sum, s) => sum + s.weight, 0);
             
-            const winningSignals = longWeight > shortWeight ? longSignals : shortSignals;
-            winningSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+            // Facteur de confiance: si la différence entre les poids est faible, 
+            // nous considérons qu'il y a incertitude
+            const totalWeight = longWeight + shortWeight;
+            const confidenceThreshold = 0.2; // 20% difference minimum for a clear decision
+            const confidenceDifference = Math.abs(longWeight - shortWeight) / totalWeight;
+            
+            if (confidenceDifference < confidenceThreshold) {
+              // Insufficient confidence, ignore all signals
+              logger.debug(`Conflicting signals with low confidence (${confidenceDifference.toFixed(2)}), ignoring all signals`);
+            } else {
+              // Sufficient confidence, choose the winning direction signals
+              const winningSignals = longWeight > shortWeight ? longSignals : shortSignals;
+              winningSignals.forEach(s => resolvedSignals.set(s.strategyId, s.signal));
+            }
           }
           break;
         }
@@ -218,6 +255,14 @@ export const createStrategyManagerActorDefinition = (
     }
     
     return resolvedSignals;
+  };
+  
+  // Vérifie si une entrée de cache est toujours valide
+  const isValidCacheEntry = (entry: MarketDataCacheEntry | undefined): boolean => {
+    if (!entry) return false;
+    
+    const now = Date.now();
+    return (now - entry.timestamp) < entry.ttl;
   };
   
   // Behavior function to handle messages
@@ -313,10 +358,14 @@ export const createStrategyManagerActorDefinition = (
         
         logger.debug(`Processing market data for ${data.symbol}`);
         
-        // Update market data cache
+        // Update market data cache with TTL
         const updatedCache = {
           ...state.marketDataCache,
-          [data.symbol]: data
+          [data.symbol]: {
+            data,
+            timestamp: Date.now(),
+            ttl: 60000 // 1 minute TTL by default
+          }
         };
         
         // Find strategies that are interested in this market
@@ -372,18 +421,22 @@ export const createStrategyManagerActorDefinition = (
 
         // Send consolidated signal to TradingBotActor
         if (resolvedSignals.size > 0 && tradingBotActorAddress) {
-          const firstEntry = resolvedSignals.entries().next();
-          if (!firstEntry.done && firstEntry.value) {
-            const [firstStrategyId, firstSignal] = firstEntry.value;
-            if (firstSignal) {
-              context.send(tradingBotActorAddress, {
-                type: "CONSOLIDATED_SIGNAL", // New message type for TradingBotActor
-                payload: { 
-                  strategyId: firstStrategyId, 
-                  signal: firstSignal, 
-                  marketData: data 
-                }
-              });
+          // Traiter tous les signaux valides
+          for (const [stratId, signal] of resolvedSignals.entries()) {
+            if (signal) {
+              const targetSymbol = data.symbol; // Utilisez les données de marché actuelles
+              const cachedEntry = state.marketDataCache[targetSymbol];
+              
+              if (cachedEntry && cachedEntry.data) {
+                context.send(tradingBotActorAddress, {
+                  type: "CONSOLIDATED_SIGNAL",
+                  payload: { 
+                    strategyId: stratId, 
+                    signal, 
+                    marketData: cachedEntry.data 
+                  }
+                });
+              }
             }
           }
         }
@@ -656,19 +709,40 @@ export const createStrategyManagerActorDefinition = (
           const firstEntry = resolvedSignals.entries().next();
           if (!firstEntry.done && firstEntry.value) {
             const [firstStrategyId, firstSignal] = firstEntry.value;
-            const marketData = state.marketDataCache[symbol]; // Get market data from cache
+            const cachedEntry = state.marketDataCache[symbol]; // Get market data from cache
 
-            if (firstSignal && marketData) {
+            // Vérifier si le cache est valide
+            if (firstSignal && cachedEntry && isValidCacheEntry(cachedEntry)) {
+              // Utiliser les données en cache
               context.send(tradingBotActorAddress, {
-                type: "CONSOLIDATED_SIGNAL", // New message type for TradingBotActor
+                type: "CONSOLIDATED_SIGNAL", 
                 payload: { 
                   strategyId: firstStrategyId, 
                   signal: firstSignal, 
-                  marketData 
+                  marketData: cachedEntry.data 
                 }
               });
-            } else if (firstSignal && !marketData) {
-              logger.warn(`Market data for symbol ${symbol} not found in cache. Cannot send consolidated signal.`);
+            } else if (firstSignal) {
+              // Récupérer les données de marché à la demande via un message au TradingBot
+              logger.debug(`Market data for ${symbol} not found in cache or expired. Requesting fresh data.`);
+              
+              try {
+                // Envoyer un message pour récupérer les données et attendre la réponse
+                context.send(tradingBotActorAddress, {
+                  type: "REQUEST_MARKET_DATA",
+                  payload: { 
+                    symbol,
+                    strategyId: firstStrategyId,
+                    signal: firstSignal
+                  }
+                });
+                
+                // Le traitement sera fait lorsque le trading bot répondra avec les données
+                // Pas besoin d'attendre une réponse ici (conception asynchrone)
+              } catch (error) {
+                // Log de l'erreur mais pas besoin d'autres actions car le trading bot gérera les erreurs
+                logger.error(`Error requesting market data for symbol ${symbol}`, error instanceof Error ? error : new Error(String(error)));
+              }
             }
           }
         }

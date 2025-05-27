@@ -62,7 +62,7 @@ export const createElliottWaveStrategy = (config: ElliottWaveConfig): Strategy =
   };
 
   // ID et nom de la stratégie
-  const id = `elliott-wave-${config.symbol}-${config.waveDetectionLength}`;
+  const id = `elliott-wave-${config.symbol}`;
   const name = `Elliott Wave (${config.waveDetectionLength})`;
 
   // Paramètres par défaut

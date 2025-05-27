@@ -70,7 +70,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
   };
 
   // ID et nom de la stratégie
-  const id = `harmonic-pattern-${config.symbol}-${config.detectionLength}`;
+  const id = `harmonic-pattern-${config.symbol}`;
   const name = `Harmonic Pattern (${config.detectionLength})`;
 
   // Paramètres par défaut

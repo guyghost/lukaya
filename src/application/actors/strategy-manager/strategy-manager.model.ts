@@ -55,13 +55,19 @@ export type StrategyManagerMessage =
   | { type: 'VALIDATE_ORDER'; strategyId: string; signal: StrategySignal; orderParams: OrderParams }
   | { type: 'UPDATE_CONFIG'; config: Partial<StrategyManagerConfig> };
 
+export interface MarketDataCacheEntry {
+  data: MarketData;
+  timestamp: number;
+  ttl: number; // Time-to-live in ms
+}
+
 export interface StrategyManagerState {
   strategies: Record<string, StrategyEntry>;
   config: StrategyManagerConfig;
   activeStrategiesCount: number;
   lastOptimization: number;
   lastRotation: number;
-  marketDataCache: Record<string, MarketData>;
+  marketDataCache: Record<string, MarketDataCacheEntry>;
   // tradingBotActorAddress?: ActorAddress; // Optional: To send consolidated signals back
 }
 

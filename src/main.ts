@@ -234,7 +234,8 @@ class LukayaTradingApp implements LukayaApp {
     }
     
     const typeMap: Record<string, StrategyType> = {
-      'rsi-divergence': StrategyType.RSI_DIVERGENCE,
+      'rsi-div': StrategyType.RSI_DIVERGENCE,
+      'rsi-divergence': StrategyType.RSI_DIVERGENCE,  // Keep for backwards compatibility
       'volume-analysis': StrategyType.VOLUME_ANALYSIS,
       'elliott-wave': StrategyType.ELLIOTT_WAVE,
       'harmonic-pattern': StrategyType.HARMONIC_PATTERN

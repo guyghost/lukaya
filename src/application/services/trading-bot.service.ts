@@ -56,7 +56,21 @@ type TradingBotMessage =
   | { type: "PERFORMANCE_UPDATE"; metrics: any }
   | { type: "ANALYZE_POSITIONS" }
   | { type: "POSITION_VIABILITY_RESULT"; symbol: string; isViable: boolean; reason: string; shouldClose: boolean; direction?: 'long' | 'short' | 'none'; size?: number }
-  | { type: "CONSOLIDATED_SIGNAL"; payload: { strategyId: string; signal: StrategySignal; marketData: MarketData }}; // Added CONSOLIDATED_SIGNAL
+  | { type: "CONSOLIDATED_SIGNAL"; payload: { strategyId: string; signal: StrategySignal; marketData: MarketData }}
+  | { type: "REQUEST_MARKET_DATA"; payload: { symbol: string; strategyId: string; signal: StrategySignal } }
+  | { type: "RETRY_SIGNAL"; payload: { pendingSignalId: string } };
+
+// Définition d'un signal en attente pour le mécanisme de réessai
+interface PendingSignal {
+  id: string;
+  strategyId: string;
+  signal: StrategySignal;
+  symbol: string;
+  timestamp: number;
+  attempts: number;
+  lastAttempt: number;
+  reason: string;
+}
 
 interface TradingBotState {
   isRunning: boolean;
@@ -72,6 +86,8 @@ interface TradingBotState {
   orderManagerActor: ActorAddress | null;
   positions: Record<string, { symbol: string; direction: 'long' | 'short' | 'none'; size: number }>;
   takeProfitIntegrator: ReturnType<typeof createTakeProfitIntegrator> | null;
+  pendingSignals: Record<string, PendingSignal>; // Signaux en attente de traitement/réessai
+  subscribedSymbols: Set<string>; // Symboles pour lesquels on est abonné aux données de marché
 }
 
 export interface TradingBotService {
@@ -271,6 +287,8 @@ export const createTradingBotService = (
     orderManagerActor: null,
     positions: {},
     takeProfitIntegrator: null,
+    pendingSignals: {},
+    subscribedSymbols: new Set<string>()
   };
 
   // Helper function to close a position
@@ -362,10 +380,20 @@ export const createTradingBotService = (
           
           // Créer les acteurs de stratégie pour les stratégies qui ont été ajoutées avant
           // l'initialisation du gestionnaire de stratégies
-          for (const [strategyId, strategy] of Object.entries(state.strategyService.getAllStrategies())) {
+          for (const strategy of state.strategyService.getAllStrategies()) {
             try {
+              const strategyId = strategy.getId();
               if (!state.strategyActors.has(strategyId)) {
                 logger.info(`Creating previously pending strategy actor for: ${strategyId}`);
+                
+                // D'abord, enregistrer explicitement la stratégie auprès du gestionnaire de stratégies
+                actorSystem.send(strategyManagerActor, {
+                  type: "REGISTER_STRATEGY",
+                  strategy: strategy,
+                  markets: [(strategy.getConfig().parameters as Record<string, string>).symbol]
+                });
+                logger.info(`Strategy ${strategyId} registered with StrategyManager (delayed registration)`);
+                
                 const strategyActorDef = createStrategyActorDefinition(
                   strategy,
                   strategyManagerActor
@@ -376,7 +404,7 @@ export const createTradingBotService = (
                 logger.debug(`Created strategy actor for previously pending strategy: ${strategyId}`);
               }
             } catch (error) {
-              logger.error(`Error creating strategy actor for: ${strategyId}`, error as Error);
+              logger.error(`Error creating strategy actor:`, error as Error);
             }
           }
         }
@@ -510,15 +538,15 @@ export const createTradingBotService = (
           );
           
           if (totalClosePercentage < 100) {
-            logger.warn(`La somme des pourcentages de fermeture (${totalClosePercentage}%) est inférieure à 100%. La position ne sera pas entièrement fermée.`);
+            logger.warn(`Sum of closure percentages (${totalClosePercentage}%) is less than 100%. The position will not be fully closed.`);
           } else if (totalClosePercentage > 100) {
-            logger.warn(`La somme des pourcentages de fermeture (${totalClosePercentage}%) est supérieure à 100%. Les pourcentages seront ajustés proportionnellement.`);
-            // Ajuster les pourcentages
+            logger.warn(`Sum of closure percentages (${totalClosePercentage}%) exceeds 100%. Adjusting proportionally.`);
+            // Adjust percentages proportionally
             const ratio = 100 / totalClosePercentage;
             takeProfitConfig.profitTiers.forEach(tier => {
               tier.closePercentage = Math.round(tier.closePercentage * ratio);
             });
-            logger.info(`Pourcentages de fermeture ajustés: ${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%`);
+            logger.info(`Adjusted closure percentages: ${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%`);
           }
           
           if (validationErrors.length > 0) {
@@ -664,6 +692,14 @@ export const createTradingBotService = (
           logger.info(`Creating dedicated actor for strategy: ${strategyId}`);
           
           if (state.strategyManagerActor) {
+            // D'abord, enregistrer explicitement la stratégie auprès du gestionnaire de stratégies
+            actorSystem.send(state.strategyManagerActor, {
+              type: "REGISTER_STRATEGY",
+              strategy: strategy,
+              markets: [(strategy.getConfig().parameters as Record<string, string>).symbol]
+            });
+            logger.info(`Strategy ${strategyId} registered with StrategyManager`);
+            
             // Créer l'acteur de stratégie qui va communiquer avec le Strategy Manager
             const strategyActorDef = createStrategyActorDefinition(
               strategy,
@@ -714,7 +750,20 @@ export const createTradingBotService = (
           }
         }
 
-        // Unregister the strategy
+        // Désenregistrer la stratégie du StrategyManager si celui-ci existe
+        if (state.strategyManagerActor) {
+          try {
+            actorSystem.send(state.strategyManagerActor, {
+              type: "UNREGISTER_STRATEGY",
+              strategyId
+            });
+            logger.info(`Strategy ${strategyId} unregistered from StrategyManager`);
+          } catch (error) {
+            logger.error(`Error unregistering strategy from StrategyManager: ${strategyId}`, error as Error);
+          }
+        }
+
+        // Unregister the strategy from the service
         state.strategyService.unregisterStrategy(strategyId);
 
         // Check if any other strategies are using this symbol
@@ -868,13 +917,47 @@ export const createTradingBotService = (
             });
 
             if (!buyingPowerResult.approved) {
-              logger.error(`Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`); // Corrected: Use order.symbol
+              logger.warn(`Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`);
+              
+              // Sauvegarder le signal pour un réessai ultérieur
+              const pendingSignalId = `${strategyId}_${signal.type}_${signal.direction}_${Date.now()}`;
+              const pendingSignal: PendingSignal = {
+                id: pendingSignalId,
+                strategyId,
+                signal,
+                symbol: order.symbol,
+                timestamp: Date.now(),
+                attempts: 1,
+                lastAttempt: Date.now(),
+                reason: buyingPowerResult.reason || "Rejected by buying power check"
+              };
+              
+              // Ajouter aux signaux en attente
+              const updatedPendingSignals = {
+                ...state.pendingSignals,
+                [pendingSignalId]: pendingSignal
+              };
+              
+              // Planifier un réessai dans 5 minutes
+              setTimeout(() => {
+                context.send(context.self, {
+                  type: "RETRY_SIGNAL",
+                  payload: { pendingSignalId }
+                });
+              }, 5 * 60 * 1000); // 5 minutes
+              
               context.send(context.self, {
                 type: "ORDER_REJECTED",
                 order,
-                reason: buyingPowerResult.reason || 'Buying power check failed',
+                reason: buyingPowerResult.reason || "Insufficient buying power",
               });
-              return { state };
+              
+              return {
+                state: {
+                  ...state,
+                  pendingSignals: updatedPendingSignals
+                }
+              };
             }
 
             if (buyingPowerResult.adjustedSize || buyingPowerResult.adjustedPrice) {
@@ -1184,6 +1267,141 @@ export const createTradingBotService = (
           }
         }
 
+        return { state };
+      }
+      
+      case "REQUEST_MARKET_DATA": {
+        const { symbol, strategyId, signal } = payload.payload;
+        logger.info(`Received request for market data for symbol ${symbol} from strategy ${strategyId}`);
+        
+        try {
+          // Get latest market data
+          const marketData = await marketDataPort.getLatestMarketData(symbol);
+          
+          if (marketData) {
+            // Send data directly to the StrategyManager
+            if (state.strategyManagerActor) {
+              // Generate a unique ID for this signal
+              const signalId = `${strategyId}_${Date.now()}`;
+              
+              // Create a pending signal entry for tracking
+              const updatedPendingSignals = {
+                ...state.pendingSignals,
+                [signalId]: {
+                  id: signalId,
+                  strategyId,
+                  signal,
+                  symbol,
+                  timestamp: Date.now(),
+                  attempts: 1,
+                  lastAttempt: Date.now(),
+                  reason: "Market data requested directly"
+                }
+              };
+              
+              // Process signal immediately with the retrieved data
+              context.send(context.self, {
+                type: "CONSOLIDATED_SIGNAL",
+                payload: {
+                  strategyId,
+                  signal,
+                  marketData
+                }
+              });
+              
+              return {
+                state: {
+                  ...state,
+                  pendingSignals: updatedPendingSignals
+                }
+              };
+            }
+          } else {
+            logger.warn(`Failed to fetch market data for symbol ${symbol}`);
+          }
+        } catch (error) {
+          logger.error(`Error fetching market data for symbol ${symbol}:`, error instanceof Error ? error : new Error(String(error)));
+        }
+        
+        return { state };
+      }
+      
+      case "RETRY_SIGNAL": {
+        const { pendingSignalId } = payload.payload;
+        const pendingSignal = state.pendingSignals[pendingSignalId];
+        
+        if (!pendingSignal) {
+          logger.warn(`Cannot retry signal ${pendingSignalId}: not found in pending signals`);
+          return { state };
+        }
+        
+        // Vérifier le nombre de tentatives (max 3)
+        if (pendingSignal.attempts >= 3) {
+          logger.warn(`Signal ${pendingSignalId} has reached maximum retry attempts (${pendingSignal.attempts}). Abandoning.`);
+          
+          // Supprimer le signal des signaux en attente
+          const { [pendingSignalId]: _, ...remainingSignals } = state.pendingSignals;
+          
+          return {
+            state: {
+              ...state,
+              pendingSignals: remainingSignals
+            }
+          };
+        }
+        
+        logger.info(`Retrying signal ${pendingSignalId} (attempt ${pendingSignal.attempts + 1})`);
+        
+        try {
+          // Récupérer les dernières données de marché
+          const marketData = await marketDataPort.getLatestMarketData(pendingSignal.symbol);
+          
+          if (marketData) {
+            // Mettre à jour le signal en attente
+            const updatedPendingSignal = {
+              ...pendingSignal,
+              attempts: pendingSignal.attempts + 1,
+              lastAttempt: Date.now()
+            };
+            
+            const updatedPendingSignals = {
+              ...state.pendingSignals,
+              [pendingSignalId]: updatedPendingSignal
+            };
+            
+            // Traiter le signal avec les nouvelles données de marché
+            context.send(context.self, {
+              type: "CONSOLIDATED_SIGNAL",
+              payload: {
+                strategyId: pendingSignal.strategyId,
+                signal: pendingSignal.signal,
+                marketData
+              }
+            });
+            
+            return {
+              state: {
+                ...state,
+                pendingSignals: updatedPendingSignals
+              }
+            };
+          } else {
+            logger.warn(`Failed to fetch market data for retrying signal ${pendingSignalId}`);
+            
+            // Planifier un autre réessai avec délai exponentiel
+            const delayMs = Math.min(30 * 60 * 1000, 5 * 60 * 1000 * Math.pow(2, pendingSignal.attempts)); // 5min, 10min, 20min, max 30min
+            
+            setTimeout(() => {
+              context.send(context.self, {
+                type: "RETRY_SIGNAL",
+                payload: { pendingSignalId }
+              });
+            }, delayMs);
+          }
+        } catch (error) {
+          logger.error(`Error retrying signal ${pendingSignalId}:`, error instanceof Error ? error : new Error(String(error)));
+        }
+        
         return { state };
       }
 

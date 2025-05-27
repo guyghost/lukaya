@@ -29,7 +29,7 @@ export enum StrategyStatus {
 
 // Types de stratégies
 export enum StrategyType {
-  RSI_DIVERGENCE = 'rsi-divergence',
+  RSI_DIVERGENCE = 'rsi-div',
   VOLUME_ANALYSIS = 'volume-analysis',
   ELLIOTT_WAVE = 'elliott-wave',
   HARMONIC_PATTERN = 'harmonic-pattern',
