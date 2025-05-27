@@ -72,6 +72,7 @@ export interface RiskManagerState {
   positions: Record<string, PositionRisk>;
   accountRisk: AccountRisk;
   marketVolatility: Record<string, number>;
+  marketPrices: Record<string, number>;  // Store current market prices
   dailyPnL: number;
   lastRebalance: number;
   orderManagerAddress: ActorAddress | null;

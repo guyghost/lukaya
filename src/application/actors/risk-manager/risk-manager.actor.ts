@@ -58,6 +58,7 @@ export const createRiskManagerActorDefinition = (
       leverageUsed: 0
     },
     marketVolatility: {},
+    marketPrices: {},  // Initialize empty market prices storage
     dailyPnL: 0,
     lastRebalance: Date.now(),
     orderManagerAddress: null
@@ -176,10 +177,15 @@ export const createRiskManagerActorDefinition = (
     // Get current price if not specified in order
     let orderPrice = order.price;
     if (!orderPrice && state.positions[order.symbol]) {
+      // Use current price from existing position
       orderPrice = state.positions[order.symbol].currentPrice;
+    } else if (!orderPrice && state.marketPrices[order.symbol]) {
+      // Use current market price for MARKET orders
+      orderPrice = state.marketPrices[order.symbol];
+      logger.debug(`Using current market price ${orderPrice} for MARKET order on ${order.symbol}`);
     } else if (!orderPrice) {
-      // If no price specified and no position exists, this is a risky situation
-      logger.warn(`No price specified for order on ${order.symbol} and no current position exists`);
+      // If no price specified and no market price available, this is a risky situation
+      logger.warn(`No price specified for order on ${order.symbol} and no current market price available`);
       orderPrice = 0; // Will be caught by zero-price check below
     }
     
@@ -640,8 +646,21 @@ export const createRiskManagerActorDefinition = (
       case "MARKET_UPDATE": {
         const { symbol, price } = payload;
         
-        // If we don't have a position in this symbol, nothing to do
-        if (!state.positions[symbol]) return { state };
+        // Always store the current market price for order risk assessment
+        const updatedMarketPrices = {
+          ...state.marketPrices,
+          [symbol]: price
+        };
+        
+        // If we don't have a position in this symbol, just store the price and return
+        if (!state.positions[symbol]) {
+          return { 
+            state: {
+              ...state,
+              marketPrices: updatedMarketPrices
+            }
+          };
+        }
         
         // Update the current price in our position
         const position = state.positions[symbol];
@@ -667,6 +686,7 @@ export const createRiskManagerActorDefinition = (
         return {
           state: {
             ...state,
+            marketPrices: updatedMarketPrices,
             positions: updatedPositions,
             accountRisk: updatedAccountRisk
           }

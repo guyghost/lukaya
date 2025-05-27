@@ -71,7 +71,7 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
   // Paramètres par défaut
   const maxSlippagePercent = config.maxSlippagePercent || 1.0;
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
-  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : false;
 
   // Calcul du delta de volume (différence entre volume acheteur et vendeur)
   const calculateVolumeDelta = (price: number, prevPrice: number, volume: number): number => {

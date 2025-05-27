@@ -82,7 +82,7 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
   // Paramètres par défaut
   const maxSlippagePercent = config.maxSlippagePercent || 1.0;
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
-  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : false;
   
   // Enhanced sensitivity parameters with defaults
   const microMomentumThreshold = config.microMomentumThreshold || 0.001; // 0.1% price slope change

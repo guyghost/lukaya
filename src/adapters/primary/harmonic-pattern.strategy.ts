@@ -76,7 +76,7 @@ export const createHarmonicPatternStrategy = (config: HarmonicPatternConfig): St
   // Paramètres par défaut
   const maxSlippagePercent = config.maxSlippagePercent || 1.0;
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
-  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : false;
   const tolerance = config.fibRetracementTolerance || 0.03; // Tolérance pour les niveaux de Fibonacci (±3%)
   
   // Ratios de Fibonacci pour les patterns harmoniques
