@@ -673,22 +673,54 @@ export const createDydxClient = (config: DydxClientConfig): {
         const mappedType = mapOrderType(orderParams.type);
         const mappedTimeInForce = mapTimeInForce(orderParams.timeInForce);
         
-        // S'assurer que le prix est toujours renseigné
+        // S'assurer que le prix est toujours renseigné et ajusté pour garantir l'exécution
         let priceToUse: number | undefined = orderParams.price;
+        
+        // Pour les ordres LIMIT et STOP_LIMIT, le prix doit être fourni
         if (
           (orderParams.type === OrderType.LIMIT || orderParams.type === OrderType.STOP_LIMIT) &&
           (priceToUse === undefined || priceToUse === null)
         ) {
           throw new Error("Le prix doit être renseigné pour les ordres LIMIT ou STOP_LIMIT.");
         }
+        
+        // Pour les ordres MARKET, calculer un prix adapté selon le côté de l'ordre
         if (
           orderParams.type === OrderType.MARKET &&
           (priceToUse === undefined || priceToUse === null)
         ) {
-          // Récupérer le dernier prix du marché si non fourni
+          // Récupérer les données de marché avec bid/ask
           const latestMarketData = await marketDataPort.getLatestMarketData(orderParams.symbol);
-          priceToUse = latestMarketData.price;
-          logger.info("💡 Prix du marché utilisé pour l'ordre MARKET :", { symbol: orderParams.symbol, price: priceToUse });
+          
+          // Ajuster le prix selon le côté pour garantir l'exécution
+          if (orderParams.side === OrderSide.BUY) {
+            // Pour un achat : utiliser le prix ask + une marge pour garantir l'exécution
+            const askPrice = latestMarketData.ask || latestMarketData.price;
+            priceToUse = askPrice * 1.02; // +2% de marge pour garantir l'exécution
+            logger.info("💰 Prix d'achat ajusté pour garantir l'exécution :", { 
+              symbol: orderParams.symbol, 
+              marketPrice: latestMarketData.price,
+              askPrice: askPrice,
+              adjustedPrice: priceToUse,
+              margin: "2%" 
+            });
+          } else {
+            // Pour une vente : utiliser le prix bid - une marge pour garantir l'exécution
+            const bidPrice = latestMarketData.bid || latestMarketData.price;
+            priceToUse = bidPrice * 0.98; // -2% de marge pour garantir l'exécution
+            logger.info("💸 Prix de vente ajusté pour garantir l'exécution :", { 
+              symbol: orderParams.symbol, 
+              marketPrice: latestMarketData.price,
+              bidPrice: bidPrice,
+              adjustedPrice: priceToUse,
+              margin: "-2%" 
+            });
+          }
+        }
+        
+        // Validation finale : s'assurer qu'on a toujours un prix valide
+        if (!priceToUse || priceToUse <= 0) {
+          throw new Error(`Prix invalide calculé pour l'ordre ${orderParams.symbol}: ${priceToUse}`);
         }
         
         logger.info("🔄 TRAÇAGE ORDRE - Transformations de mapping :", {
