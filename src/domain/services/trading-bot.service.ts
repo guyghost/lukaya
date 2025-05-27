@@ -166,7 +166,7 @@ export const createTradingBotService = (
     }
     
     // Schedule next polling
-    setTimeout(pollMarketData, 5000); // Poll every 5 seconds
+    setTimeout(pollMarketData, 1000); // Poll every 1 second for enhanced sensitivity
   };
 
   // Public API methods

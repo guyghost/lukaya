@@ -243,7 +243,7 @@ export const createTradingBotService = (
   marketDataPort: MarketDataPort,
   tradingPort: TradingPort,
   options = {
-    pollInterval: 5000,
+    pollInterval: 1000, // Réduit de 5000ms à 1000ms pour une meilleure réactivité aux micro-variations
     positionAnalysisInterval: 300000, // 5 minutes
     maxFundsPerOrder: 0.3, // Maximum 30% of available funds per order by default
     riskConfig: {} as Partial<RiskManagerConfig>,

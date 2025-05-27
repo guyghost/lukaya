@@ -24,6 +24,10 @@ interface RsiDivergenceConfig {
   maxCapitalPerTrade?: number;
   limitOrderBuffer?: number;
   useLimitOrders?: boolean;
+  // Enhanced sensitivity parameters
+  microMomentumThreshold?: number; // Minimum price slope change to detect micro-momentum
+  cumulativeScoreThreshold?: number; // Threshold for cumulative weak signals to trigger entry
+  weakSignalDecay?: number; // Rate at which weak signals decay over time
 }
 
 interface RsiDivergenceState {
@@ -36,6 +40,11 @@ interface RsiDivergenceState {
   position: "none" | "long" | "short";
   lastEntryPrice: number | null;
   accountSize: number | null;
+  // Enhanced sensitivity state
+  priceSlopes: number[]; // Track price slope changes for micro-momentum
+  cumulativeScore: number; // Cumulative score for weak signals
+  lastSignalTime: number; // Timestamp of last signal for decay calculation
+  microSignals: Array<{type: 'bullish' | 'bearish', strength: number, timestamp: number}>; // Recent micro-signals
 }
 
 export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strategy => {
@@ -59,6 +68,11 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     position: "none",
     lastEntryPrice: null,
     accountSize: config.accountSize || null,
+    // Enhanced sensitivity state initialization
+    priceSlopes: [],
+    cumulativeScore: 0,
+    lastSignalTime: 0,
+    microSignals: [],
   };
 
   // Génerer un ID et un nom uniques pour la stratégie
@@ -69,6 +83,11 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
   const maxSlippagePercent = config.maxSlippagePercent || 1.0;
   const minLiquidityRatio = config.minLiquidityRatio || 10.0;
   const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true;
+  
+  // Enhanced sensitivity parameters with defaults
+  const microMomentumThreshold = config.microMomentumThreshold || 0.001; // 0.1% price slope change
+  const cumulativeScoreThreshold = config.cumulativeScoreThreshold || 3.0; // Cumulative score to trigger entry
+  const weakSignalDecay = config.weakSignalDecay || 0.95; // 5% decay per tick
 
   // Recherche des pivots locaux (sommets/creux) avec une approche très souple
   const findPivots = (data: number[], window: number): { highs: {value: number, index: number}[], lows: {value: number, index: number}[] } => {
@@ -258,6 +277,128 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
     
     return { bullishDivergence, bearishDivergence };
   };
+  
+  // Enhanced micro-momentum detection based on price slope changes
+  const detectMicroMomentum = (prices: number[]): {type: 'bullish' | 'bearish' | 'neutral', strength: number} => {
+    if (prices.length < 3) return {type: 'neutral', strength: 0};
+    
+    // Calculate recent price slopes (rate of change)
+    const recentPrices = prices.slice(-3);
+    const slope1 = (recentPrices[1] - recentPrices[0]) / recentPrices[0];
+    const slope2 = (recentPrices[2] - recentPrices[1]) / recentPrices[1];
+    
+    // Detect acceleration/deceleration in price movement
+    const slopeChange = slope2 - slope1;
+    const avgPrice = recentPrices.reduce((sum, p) => sum + p, 0) / recentPrices.length;
+    const normalizedSlopeChange = Math.abs(slopeChange) / (avgPrice * microMomentumThreshold);
+    
+    // Store the slope for analysis
+    state.priceSlopes.push(slopeChange);
+    if (state.priceSlopes.length > 10) {
+      state.priceSlopes = state.priceSlopes.slice(-10);
+    }
+    
+    // Determine momentum type and strength
+    if (Math.abs(slopeChange) > microMomentumThreshold) {
+      const strength = Math.min(normalizedSlopeChange, 2.0); // Cap strength at 2.0
+      if (slopeChange > 0) {
+        logger.debug(`Bullish micro-momentum detected`, {
+          slope1: (slope1 * 100).toFixed(4),
+          slope2: (slope2 * 100).toFixed(4),
+          slopeChange: (slopeChange * 100).toFixed(4),
+          strength: strength.toFixed(2)
+        });
+        return {type: 'bullish', strength};
+      } else {
+        logger.debug(`Bearish micro-momentum detected`, {
+          slope1: (slope1 * 100).toFixed(4),
+          slope2: (slope2 * 100).toFixed(4),
+          slopeChange: (slopeChange * 100).toFixed(4),
+          strength: strength.toFixed(2)
+        });
+        return {type: 'bearish', strength};
+      }
+    }
+    
+    return {type: 'neutral', strength: 0};
+  };
+  
+  // Enhanced cumulative scoring system for weak signals
+  const updateCumulativeScore = (momentum: {type: 'bullish' | 'bearish' | 'neutral', strength: number}, 
+                                 divergence: {bullishDivergence: boolean, bearishDivergence: boolean},
+                                 rsi: number, currentTime: number) => {
+    // Apply decay to existing score based on time elapsed
+    const timeDelta = currentTime - state.lastSignalTime;
+    if (timeDelta > 0 && state.lastSignalTime > 0) {
+      const decayFactor = Math.pow(weakSignalDecay, timeDelta / 1000); // Decay per second
+      state.cumulativeScore *= decayFactor;
+    }
+    state.lastSignalTime = currentTime;
+    
+    // Add momentum contribution
+    if (momentum.type === 'bullish') {
+      state.cumulativeScore += momentum.strength * 0.5; // Weight momentum at 50% of divergence
+    } else if (momentum.type === 'bearish') {
+      state.cumulativeScore -= momentum.strength * 0.5;
+    }
+    
+    // Add divergence contribution (stronger weight)
+    if (divergence.bullishDivergence) {
+      state.cumulativeScore += 1.5;
+      logger.debug(`Bullish divergence added to cumulative score`, {
+        contribution: 1.5,
+        newScore: state.cumulativeScore.toFixed(2)
+      });
+    }
+    if (divergence.bearishDivergence) {
+      state.cumulativeScore -= 1.5;
+      logger.debug(`Bearish divergence added to cumulative score`, {
+        contribution: -1.5,
+        newScore: state.cumulativeScore.toFixed(2)
+      });
+    }
+    
+    // Add RSI extremes contribution (weaker signals in neutral zones)
+    const rsiNeutralZone = config.overboughtLevel - config.oversoldLevel;
+    const rsiMidpoint = (config.overboughtLevel + config.oversoldLevel) / 2;
+    const rsiDeviation = Math.abs(rsi - rsiMidpoint) / (rsiNeutralZone / 2);
+    
+    if (rsi < config.oversoldLevel) {
+      state.cumulativeScore += 0.3 * rsiDeviation; // Bullish RSI contribution
+    } else if (rsi > config.overboughtLevel) {
+      state.cumulativeScore -= 0.3 * rsiDeviation; // Bearish RSI contribution
+    }
+    
+    // Record micro-signal for analysis
+    if (momentum.type !== 'neutral' || divergence.bullishDivergence || divergence.bearishDivergence) {
+      const signalType = state.cumulativeScore > 0 ? 'bullish' : 'bearish';
+      state.microSignals.push({
+        type: signalType,
+        strength: Math.abs(state.cumulativeScore),
+        timestamp: currentTime
+      });
+      
+      // Keep only recent micro-signals (last 20)
+      if (state.microSignals.length > 20) {
+        state.microSignals = state.microSignals.slice(-20);
+      }
+    }
+    
+    // Log cumulative score for debugging
+    logger.debug(`Cumulative score updated`, {
+      momentum: momentum.type,
+      momentumStrength: momentum.strength.toFixed(2),
+      bullishDiv: divergence.bullishDivergence,
+      bearishDiv: divergence.bearishDivergence,
+      rsi: rsi.toFixed(2),
+      rsiContribution: rsi < config.oversoldLevel ? `+${(0.3 * rsiDeviation).toFixed(2)}` : 
+                       rsi > config.overboughtLevel ? `-${(0.3 * rsiDeviation).toFixed(2)}` : '0',
+      cumulativeScore: state.cumulativeScore.toFixed(2),
+      threshold: cumulativeScoreThreshold
+    });
+    
+    return state.cumulativeScore;
+  };
 
   return {
     getId: () => id,
@@ -342,77 +483,159 @@ export const createRsiDivergenceStrategy = (config: RsiDivergenceConfig): Strate
           
           // Détecter les divergences
           const { bullishDivergence, bearishDivergence } = detectDivergences(state);
-          logger.debug(`Divergence analysis`, { 
+          
+          // Détecter le micro-momentum
+          const microMomentum = detectMicroMomentum(state.priceHistory);
+          
+          // Mettre à jour le score cumulatif
+          const cumulativeScore = updateCumulativeScore(
+            microMomentum, 
+            { bullishDivergence, bearishDivergence }, 
+            currentRsi,
+            Date.now()
+          );
+          
+          logger.debug(`Enhanced signal analysis`, { 
             symbol: data.symbol, 
             bullishDivergence, 
             bearishDivergence,
-            currentRsi,
+            microMomentum: microMomentum.type,
+            momentumStrength: microMomentum.strength.toFixed(2),
+            cumulativeScore: cumulativeScore.toFixed(2),
+            threshold: cumulativeScoreThreshold,
+            currentRsi: currentRsi.toFixed(2),
             oversoldLevel: config.oversoldLevel,
             overboughtLevel: config.overboughtLevel,
             position: state.position
           });
           
-          // Générer des signaux basés sur les divergences et les niveaux de surachat/survente
+          // Enhanced signal generation: Traditional divergence signals + cumulative score signals
+          
+          // Strong traditional signals (keep existing logic)
           if (bullishDivergence && currentRsi < config.oversoldLevel && state.position !== "long") {
-            logger.info(`🔥 Divergence haussière détectée sur ${data.symbol} avec RSI = ${currentRsi} - GENERATING LONG SIGNAL`);
-            // Signal d'entrée long
+            logger.info(`🔥 Strong bullish divergence detected on ${data.symbol} with RSI = ${currentRsi} - GENERATING LONG SIGNAL`);
             state.position = "long";
             state.lastEntryPrice = data.price;
+            state.cumulativeScore = 0; // Reset after signal
             const signal: StrategySignal = {
               type: "entry" as const,
               direction: "long" as const,
               price: data.price,
-              reason: "Divergence haussière RSI-Prix",
+              reason: "Strong bullish RSI-Price divergence",
             };
-            logger.debug("📤 Returning LONG signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Returning STRONG LONG signal", { signal, symbol: data.symbol });
             return signal;
           } else if (bearishDivergence && currentRsi > config.overboughtLevel && state.position !== "short") {
-            logger.info(`🔥 Divergence baissière détectée sur ${data.symbol} avec RSI = ${currentRsi} - GENERATING SHORT SIGNAL`);
-            // Signal d'entrée short
+            logger.info(`🔥 Strong bearish divergence detected on ${data.symbol} with RSI = ${currentRsi} - GENERATING SHORT SIGNAL`);
             state.position = "short";
             state.lastEntryPrice = data.price;
+            state.cumulativeScore = 0; // Reset after signal
             const signal: StrategySignal = {
               type: "entry" as const,
               direction: "short" as const,
               price: data.price,
-              reason: "Divergence baissière RSI-Prix",
+              reason: "Strong bearish RSI-Price divergence",
             };
-            logger.debug("📤 Returning SHORT signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Returning STRONG SHORT signal", { signal, symbol: data.symbol });
             return signal;
-          } else if (state.position === "long" && (bearishDivergence || currentRsi > config.overboughtLevel + 10)) {
-            // Signal de sortie de position longue
+          }
+          
+          // Enhanced sensitivity: Cumulative weak signals
+          else if (cumulativeScore >= cumulativeScoreThreshold && state.position !== "long") {
+            logger.info(`🌟 Cumulative bullish signals exceeded threshold on ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GENERATING LONG SIGNAL`);
+            state.position = "long";
+            state.lastEntryPrice = data.price;
+            state.cumulativeScore = 0; // Reset after signal
+            
+            // Determine the dominant signal type for reason
+            const reasons = [];
+            if (microMomentum.type === 'bullish') reasons.push(`bullish micro-momentum (${microMomentum.strength.toFixed(2)})`);
+            if (bullishDivergence) reasons.push('weak bullish divergence');
+            if (currentRsi < config.oversoldLevel + 10) reasons.push(`RSI approaching oversold (${currentRsi.toFixed(1)})`);
+            
+            const signal: StrategySignal = {
+              type: "entry" as const,
+              direction: "long" as const,
+              price: data.price,
+              reason: `Cumulative bullish signals: ${reasons.join(', ')}`,
+            };
+            logger.debug("📤 Returning CUMULATIVE LONG signal", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
+            return signal;
+          } else if (cumulativeScore <= -cumulativeScoreThreshold && state.position !== "short") {
+            logger.info(`🌟 Cumulative bearish signals exceeded threshold on ${data.symbol} (score: ${cumulativeScore.toFixed(2)}) - GENERATING SHORT SIGNAL`);
+            state.position = "short";
+            state.lastEntryPrice = data.price;
+            state.cumulativeScore = 0; // Reset after signal
+            
+            // Determine the dominant signal type for reason
+            const reasons = [];
+            if (microMomentum.type === 'bearish') reasons.push(`bearish micro-momentum (${microMomentum.strength.toFixed(2)})`);
+            if (bearishDivergence) reasons.push('weak bearish divergence');
+            if (currentRsi > config.overboughtLevel - 10) reasons.push(`RSI approaching overbought (${currentRsi.toFixed(1)})`);
+            
+            const signal: StrategySignal = {
+              type: "entry" as const,
+              direction: "short" as const,
+              price: data.price,
+              reason: `Cumulative bearish signals: ${reasons.join(', ')}`,
+            };
+            logger.debug("📤 Returning CUMULATIVE SHORT signal", { signal, symbol: data.symbol, score: cumulativeScore.toFixed(2) });
+            return signal;
+          }
+          
+          // Exit signals (enhanced with cumulative scoring)
+          else if (state.position === "long" && (bearishDivergence || currentRsi > config.overboughtLevel + 10 || cumulativeScore <= -1.0)) {
             state.position = "none";
+            state.cumulativeScore = 0; // Reset after exit
+            const exitReason = bearishDivergence ? "bearish divergence" : 
+                              currentRsi > config.overboughtLevel + 10 ? "extreme overbought RSI" : 
+                              "bearish signal accumulation";
             const signal: StrategySignal = {
               type: "exit" as const,
               direction: "long" as const,
               price: data.price,
-              reason: "Fin de divergence haussière ou surachat extrême",
+              reason: `Long position exit: ${exitReason}`,
             };
-            logger.debug("📤 Returning LONG EXIT signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Returning LONG EXIT signal", { signal, symbol: data.symbol, reason: exitReason });
             return signal;
-          } else if (state.position === "short" && (bullishDivergence || currentRsi < config.oversoldLevel - 10)) {
-            // Signal de sortie de position courte
+          } else if (state.position === "short" && (bullishDivergence || currentRsi < config.oversoldLevel - 10 || cumulativeScore >= 1.0)) {
             state.position = "none";
+            state.cumulativeScore = 0; // Reset after exit
+            const exitReason = bullishDivergence ? "bullish divergence" : 
+                              currentRsi < config.oversoldLevel - 10 ? "extreme oversold RSI" : 
+                              "bullish signal accumulation";
             const signal: StrategySignal = {
               type: "exit" as const,
               direction: "short" as const,
               price: data.price,
-              reason: "Fin de divergence baissière ou survente extrême",
+              reason: `Short position exit: ${exitReason}`,
             };
-            logger.debug("📤 Returning SHORT EXIT signal", { signal, symbol: data.symbol });
+            logger.debug("📤 Returning SHORT EXIT signal", { signal, symbol: data.symbol, reason: exitReason });
             return signal;
           } else {
-            logger.debug("🔍 No signal conditions met", {
+            logger.debug("🔍 Enhanced analysis - no signal conditions met", {
               symbol: data.symbol,
-              bullishDivergence,
-              bearishDivergence,
-              currentRsi,
-              oversoldLevel: config.oversoldLevel,
-              overboughtLevel: config.overboughtLevel,
+              traditionalSignals: {
+                bullishDivergence,
+                bearishDivergence,
+                rsiOversold: currentRsi < config.oversoldLevel,
+                rsiOverbought: currentRsi > config.overboughtLevel
+              },
+              enhancedSignals: {
+                microMomentum: microMomentum.type,
+                momentumStrength: microMomentum.strength.toFixed(2),
+                cumulativeScore: cumulativeScore.toFixed(2),
+                scoreThreshold: cumulativeScoreThreshold,
+                bullishThresholdReached: cumulativeScore >= cumulativeScoreThreshold,
+                bearishThresholdReached: cumulativeScore <= -cumulativeScoreThreshold
+              },
+              currentRsi: currentRsi.toFixed(2),
               position: state.position,
-              reasons: {
-                bullishBlocked: bullishDivergence && (currentRsi >= config.oversoldLevel || state.position === "long"),
-                bearishBlocked: bearishDivergence && (currentRsi <= config.overboughtLevel || state.position === "short")
+              blockingReasons: {
+                longBlocked: state.position === "long",
+                shortBlocked: state.position === "short",
+                insufficientBullishSignals: cumulativeScore < cumulativeScoreThreshold,
+                insufficientBearishSignals: cumulativeScore > -cumulativeScoreThreshold
               }
             });
           }

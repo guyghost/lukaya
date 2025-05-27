@@ -248,3 +248,93 @@ Lorsqu'une position est identifiée comme non viable, le bot la ferme automatiqu
 4. Un message détaillé est inscrit dans les logs expliquant la raison de la fermeture
 
 Cette fonctionnalité protège automatiquement votre capital contre les pertes excessives sans intervention manuelle.
+
+#### Nouveautés et précisions importantes (mai 2025)
+
+- **maxFundsPerOrder** :
+  - Nouveau paramètre de gestion du risque, définit le pourcentage maximum des fonds disponibles pouvant être alloués à un seul ordre.
+  - Exemple : `MAX_FUNDS_PER_ORDER=0.25` (25% des fonds disponibles par ordre).
+  - Ce paramètre est distinct de `MAX_CAPITAL_PER_TRADE` (qui limite le capital par trade, toutes positions confondues).
+
+- **Actors et TakeProfit optionnels** :
+  - Les sections `actors` et `takeProfit` de la configuration sont optionnelles. Si elles sont omises, des valeurs par défaut sont appliquées.
+
+- **Logging** :
+  - Le paramètre `maxFileSize` est désormais de type `number` (taille en octets, ex: `10485760` pour 10 Mo).
+
+- **Stratégie : conflictResolutionMode**
+  - Le paramètre `conflictResolutionMode` n'accepte plus que les valeurs suivantes :
+    - `'performance_weighted'` (par défaut)
+    - `'risk_adjusted'`
+    - `'consensus'`
+  - Toute autre valeur (ex: `highest_confidence`) n'est plus supportée.
+
+#### Exemple de configuration JSON à jour
+
+```json
+{
+  "network": "mainnet",
+  "dydx": {
+    "mnemonic": "...",
+    "defaultSubaccountNumber": 0
+  },
+  "trading": {
+    "defaultSymbols": ["BTC-USD", "ETH-USD"],
+    "defaultPositionSize": 0.01,
+    "maxLeverage": 2,
+    "pollInterval": 5000,
+    "maxSlippagePercent": 1.0,
+    "minLiquidityRatio": 10.0,
+    "riskPerTrade": 0.01,
+    "stopLossPercent": 0.02,
+    "defaultAccountSize": 10000,
+    "maxCapitalPerTrade": 0.25,
+    "maxFundsPerOrder": 0.25,
+    "positionAnalysisInterval": 300000,
+    "limitOrderBuffer": 0.0005,
+    "useLimitOrders": false
+  },
+  "strategies": [
+    {
+      "type": "rsi-divergence",
+      "enabled": true,
+      "weight": 0.25,
+      "parameters": { "rsiPeriod": 8, "divergenceWindow": 5, "symbol": "BTC-USD", "positionSize": 0.01, "overboughtLevel": 70, "oversoldLevel": 30 }
+    }
+  ],
+  "logging": {
+    "level": "info",
+    "fileOutput": true,
+    "logFilePath": "./logs/lukaya.log",
+    "maxFileSize": 10485760,
+    "maxFiles": 5
+  },
+  "actors": {
+    "riskManager": { "maxOpenPositions": 3 },
+    "strategyManager": {
+      "autoAdjustWeights": true,
+      "maxActiveStrategies": 4,
+      "conflictResolutionMode": "performance_weighted",
+      "optimizationEnabled": true
+    },
+    "performanceTracker": {
+      "historyLength": 100,
+      "trackOpenPositions": true,
+      "realTimeUpdates": true,
+      "calculationInterval": 300000
+    }
+  },
+  "takeProfit": {
+    "enabled": true,
+    "profitTiers": [
+      { "profitPercentage": 3, "closePercentage": 30 },
+      { "profitPercentage": 5, "closePercentage": 30 },
+      { "profitPercentage": 10, "closePercentage": 40 }
+    ],
+    "cooldownPeriod": 600000,
+    "trailingMode": false
+  }
+}
+```
+
+> Pour plus de détails, voir le fichier `src/shared/interfaces/config.interface.ts`.
