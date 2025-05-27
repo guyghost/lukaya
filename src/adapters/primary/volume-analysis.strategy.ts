@@ -345,12 +345,33 @@ export const createVolumeAnalysisStrategy = (config: VolumeAnalysisConfig): Stra
     generateOrder: (signal: StrategySignal, marketData: MarketData): OrderParams | null => {
       if (marketData.symbol !== config.symbol) return null;
 
+      // DEBUG: Log the incoming signal to trace order side calculation
+      logger.info(`🔍 [DEBUG VOLUME] Generating order for signal:`, {
+        signalType: signal.type,
+        signalDirection: signal.direction,
+        signalPrice: signal.price,
+        signalReason: signal.reason,
+        symbol: marketData.symbol
+      });
+
       // Déterminer le côté de l'ordre
       const orderSide =
         (signal.type === "entry" && signal.direction === "long") ||
         (signal.type === "exit" && signal.direction === "short")
           ? OrderSide.BUY
           : OrderSide.SELL;
+
+      // DEBUG: Log the order side calculation
+      logger.info(`🔍 [DEBUG VOLUME] Order side calculation:`, {
+        symbol: marketData.symbol,
+        signalType: signal.type,
+        signalDirection: signal.direction,
+        isEntryLong: signal.type === "entry" && signal.direction === "long",
+        isExitShort: signal.type === "exit" && signal.direction === "short",
+        calculatedOrderSide: orderSide,
+        OrderSideBUY: OrderSide.BUY,
+        OrderSideSELL: OrderSide.SELL
+      });
 
       // Vérifier la liquidité disponible
       const liquidityPrice = orderSide === OrderSide.BUY ? marketData.ask : marketData.bid;

@@ -868,6 +868,16 @@ export const createTradingBotService = (
           `Received consolidated signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || marketData.price}`,
         );
         
+        // DEBUG: Add comprehensive logging for signal analysis
+        logger.info(`🔍 [DEBUG SIGNAL] Signal received from strategy ${strategyId}:`, {
+          signalType: signal.type,
+          signalDirection: signal.direction,
+          signalPrice: signal.price,
+          signalReason: signal.reason,
+          marketPrice: marketData.price,
+          symbol: marketData.symbol
+        });
+        
         logger.debug(`Consolidated signal details`, {
           strategyId,
           signal: JSON.stringify(signal),
@@ -880,6 +890,23 @@ export const createTradingBotService = (
           signal,
           marketData,
         );
+
+        // DEBUG: Add comprehensive logging for order generation
+        logger.info(`🔍 [DEBUG ORDER] Order generation result for strategy ${strategyId}:`, {
+          orderGenerated: !!order,
+          signal: {
+            type: signal.type,
+            direction: signal.direction,
+            price: signal.price
+          },
+          order: order ? {
+            symbol: order.symbol,
+            side: order.side,
+            size: order.size,
+            price: order.price,
+            type: order.type
+          } : null
+        });
 
         logger.debug(`Order generation result`, {
           strategyId,

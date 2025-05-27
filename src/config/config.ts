@@ -169,13 +169,13 @@ export const loadConfig = (): ConfigType => {
             type: "rsi-div",
             enabled: true,
             parameters: {
-              // Optimisation des paramètres RSI pour plus de sensibilité
-              rsiPeriod: Number(process.env.RSI_DIVERGENCE_PERIOD || 4), // Réduit à 4 
-              divergenceWindow: Number(process.env.RSI_DIVERGENCE_WINDOW || 3), // Réduit à 3
+              // Configuration optimisée pour plus de signaux BUY
+              rsiPeriod: Number(process.env.RSI_DIVERGENCE_PERIOD || 8), // Augmenté pour plus de stabilité
+              divergenceWindow: Number(process.env.RSI_DIVERGENCE_WINDOW || 5), // Augmenté pour detection
               symbol: "BTC-USD",
               positionSize: Number(process.env.RSI_DIVERGENCE_POSITION_SIZE || 0.015),
-              overboughtLevel: Number(process.env.RSI_DIVERGENCE_OVERBOUGHT || 55), // Abaissé à 55
-              oversoldLevel: Number(process.env.RSI_DIVERGENCE_OVERSOLD || 45), // Augmenté à 45
+              overboughtLevel: Number(process.env.RSI_DIVERGENCE_OVERBOUGHT || 75), // Augmenté pour permettre plus de trades
+              oversoldLevel: Number(process.env.RSI_DIVERGENCE_OVERSOLD || 35), // Abaissé pour plus de signaux BUY
               maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || 1.0),
               minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || 10.0),
               riskPerTrade: Number(process.env.RISK_PER_TRADE || 0.01),

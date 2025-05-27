@@ -10,6 +10,7 @@ import {
   OrderTimeInForce,
   OrderFlags,
 } from "@dydxprotocol/v4-client-js";
+import * as crypto from "crypto";
 import { MarketDataPort } from "../../application/ports/market-data.port";
 import { TradingPort } from "../../application/ports/trading.port";
 import {
@@ -22,6 +23,18 @@ import {
   TimeInForce,
 } from "../../domain/models/market.model";
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+
+// Default quantum configurations for common markets (fallback)
+const DEFAULT_QUANTUM_CONFIG: Record<string, { atomicResolution: number; stepBaseQuantums: number }> = {
+  "BTC-USD": { atomicResolution: -10, stepBaseQuantums: 1000 }, // 0.0000000001 BTC minimum
+  "ETH-USD": { atomicResolution: -9, stepBaseQuantums: 1000 }, // 0.000000001 ETH minimum  
+  "SOL-USD": { atomicResolution: -6, stepBaseQuantums: 1000000 }, // 0.001 SOL minimum
+  "LTC-USD": { atomicResolution: -6, stepBaseQuantums: 1000000 }, // 0.001 LTC minimum
+  "XRP-USD": { atomicResolution: -5, stepBaseQuantums: 10000000 }, // 0.1 XRP minimum
+  "AVAX-USD": { atomicResolution: -6, stepBaseQuantums: 1000000 }, // 0.001 AVAX minimum
+  "LINK-USD": { atomicResolution: -6, stepBaseQuantums: 1000000 }, // 0.001 LINK minimum
+  "DOT-USD": { atomicResolution: -6, stepBaseQuantums: 1000000 }, // 0.001 DOT minimum
+};
 
 export interface DydxClientConfig {
   network: Network;
@@ -117,6 +130,126 @@ export const createDydxClient = (config: DydxClientConfig): {
       throw new Error(`Market configuration not found for ${symbol}`);
     }
     return market;
+  };
+
+  /**
+   * Validate order size against dYdX minimum quantum requirements
+   * @param symbol Market symbol (e.g., "LTC-USD")
+   * @param size Order size in base units
+   * @returns Object with validation result and adjusted size if needed
+   */
+  const validateMinimumQuantums = (symbol: string, size: number): { 
+    isValid: boolean; 
+    adjustedSize?: number; 
+    minSize?: number;
+    reason?: string;
+  } => {
+    try {
+      let atomicResolution: number;
+      let stepBaseQuantums: number;
+      
+      try {
+        // Try to get market configuration from dYdX
+        const market = getMarketConfig(symbol);
+        atomicResolution = market.atomicResolution ? parseInt(market.atomicResolution) : -6;
+        stepBaseQuantums = market.stepBaseQuantums ? parseInt(market.stepBaseQuantums) : 1000000;
+      } catch (marketError) {
+        // Use default configuration if market config unavailable
+        logger.warn(`Market config unavailable for ${symbol}, using defaults:`, marketError as Error);
+        const defaultConfig = DEFAULT_QUANTUM_CONFIG[symbol];
+        if (defaultConfig) {
+          atomicResolution = defaultConfig.atomicResolution;
+          stepBaseQuantums = defaultConfig.stepBaseQuantums;
+          logger.info(`Using default quantum config for ${symbol}:`, { atomicResolution, stepBaseQuantums });
+        } else {
+          // Conservative fallback for unknown symbols
+          atomicResolution = -6;
+          stepBaseQuantums = 1000000;
+          logger.warn(`No default config for ${symbol}, using conservative fallback`);
+        }
+      }
+      
+      // Calculate minimum order size in base units
+      // stepBaseQuantums is the minimum quantum size
+      const minQuantumSize = stepBaseQuantums * Math.pow(10, atomicResolution);
+      
+      logger.debug(`📏 Quantum validation for ${symbol}:`, {
+        requestedSize: size,
+        atomicResolution,
+        stepBaseQuantums,
+        minQuantumSize,
+        sizeInQuantums: size / Math.pow(10, atomicResolution)
+      });
+
+      // Check if the order size meets minimum requirements
+      if (size < minQuantumSize) {
+        // Calculate the next valid size (round up to next quantum increment)
+        const adjustedSize = Math.ceil(size / minQuantumSize) * minQuantumSize;
+        
+        logger.warn(`⚠️ Order size ${size} below minimum ${minQuantumSize} for ${symbol}`, {
+          adjustedSize,
+          originalSizeQuantums: size / Math.pow(10, atomicResolution),
+          minSizeQuantums: stepBaseQuantums,
+          adjustedSizeQuantums: adjustedSize / Math.pow(10, atomicResolution)
+        });
+
+        return {
+          isValid: false,
+          adjustedSize,
+          minSize: minQuantumSize,
+          reason: `Order size ${size} below minimum ${minQuantumSize} (${stepBaseQuantums} quantums)`
+        };
+      }
+
+      // Check if size is properly aligned to quantum increments
+      const quantums = size / Math.pow(10, atomicResolution);
+      const remainder = quantums % stepBaseQuantums;
+      
+      if (remainder !== 0) {
+        // Round to nearest valid quantum increment
+        const adjustedQuantums = Math.round(quantums / stepBaseQuantums) * stepBaseQuantums;
+        const adjustedSize = adjustedQuantums * Math.pow(10, atomicResolution);
+        
+        logger.info(`🔧 Aligning order size to quantum increments for ${symbol}:`, {
+          originalSize: size,
+          originalQuantums: quantums,
+          adjustedSize,
+          adjustedQuantums,
+          stepBaseQuantums
+        });
+
+        return {
+          isValid: false,
+          adjustedSize,
+          minSize: minQuantumSize,
+          reason: `Order size aligned to quantum increments (${adjustedQuantums} quantums)`
+        };
+      }
+
+      return { isValid: true };
+      
+    } catch (error) {
+      logger.error(`Failed to validate quantums for ${symbol}:`, error as Error);
+      
+      // Fallback: use conservative minimum based on symbol
+      const defaultConfig = DEFAULT_QUANTUM_CONFIG[symbol];
+      let conservativeMin = 0.01; // Default fallback
+      
+      if (defaultConfig) {
+        conservativeMin = defaultConfig.stepBaseQuantums * Math.pow(10, defaultConfig.atomicResolution);
+      }
+      
+      if (size < conservativeMin) {
+        return {
+          isValid: false,
+          adjustedSize: conservativeMin,
+          minSize: conservativeMin,
+          reason: `Using conservative minimum ${conservativeMin} due to validation error`
+        };
+      }
+      
+      return { isValid: true };
+    }
   };
   
   const mapOrderSide = (side: OrderSide): DydxOrderSide => {
@@ -440,6 +573,16 @@ export const createDydxClient = (config: DydxClientConfig): {
         logger.debug("🏪 Getting market configuration...", { symbol: orderParams.symbol });
         const market = getMarketConfig(orderParams.symbol);
         logger.debug("✅ Market configuration obtained", { market });
+        
+        // Validate order size against market minimum quantums
+        const sizeValidation = validateMinimumQuantums(orderParams.symbol, orderParams.size);
+        if (!sizeValidation.isValid && sizeValidation.adjustedSize) {
+          logger.warn(`🚨 Order size validation failed for ${orderParams.symbol}: ${sizeValidation.reason}`);
+          logger.info(`📏 Adjusting order size from ${orderParams.size} to ${sizeValidation.adjustedSize}`);
+          orderParams.size = sizeValidation.adjustedSize;
+        } else if (!sizeValidation.isValid) {
+          throw new Error(`Order size ${orderParams.size} is below minimum requirements for ${orderParams.symbol}: ${sizeValidation.reason}`);
+        }
         
         // Create order execution parameters
         const execution = {

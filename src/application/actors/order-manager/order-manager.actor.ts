@@ -118,6 +118,22 @@ export const createOrderManagerActorDefinition = (
           price: orderParams.price
         });
         
+        // DEBUG: Add comprehensive logging for order processing in OrderManager
+        logger.info(`🔍 [DEBUG ORDER_MANAGER] Processing order request:`, {
+          requestId,
+          strategyId,
+          symbol: orderParams.symbol,
+          side: orderParams.side,
+          size: orderParams.size,
+          type: orderParams.type,
+          price: orderParams.price,
+          timeInForce: orderParams.timeInForce,
+          reduceOnly: orderParams.reduceOnly,
+          orderSideEnum: orderParams.side,
+          OrderSideBUY: "BUY",
+          OrderSideSELL: "SELL"
+        });
+        
         // Ajouter aux ordres en attente
         const updatedPendingOrders = {
           ...state.pendingOrders,
