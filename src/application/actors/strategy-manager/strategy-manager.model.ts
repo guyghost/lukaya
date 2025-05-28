@@ -68,7 +68,6 @@ export interface StrategyManagerState {
   lastOptimization: number;
   lastRotation: number;
   marketDataCache: Record<string, MarketDataCacheEntry>;
-  // tradingBotActorAddress?: ActorAddress; // Optional: To send consolidated signals back
 }
 
 export interface StrategyManagerPort {

@@ -9,7 +9,7 @@ import { Strategy, StrategySignal } from "../../domain/models/strategy.model";
 import { MarketData } from "../../domain/models/market.model";
 
 export type StrategyActorMessage =
-  | { type: "PROCESS_MARKET_DATA"; data: MarketData; tradingBotActorAddress: ActorAddress } // Added tradingBotActorAddress
+  | { type: "PROCESS_MARKET_DATA"; data: MarketData; tradingBotActorAddress: ActorAddress }
   | { type: "UPDATE_CONFIG"; config: Record<string, unknown> }
   | { type: "GET_STATUS" };
 
@@ -20,11 +20,6 @@ export interface StrategyActorState {
   signalCount: number;
   strategyManagerAddress: ActorAddress | null;
   active: boolean;
-  statistics: {
-    successfulTrades: number;
-    failedTrades: number;
-    profitLoss: number;
-  };
 }
 
 export const createStrategyActorDefinition = (
@@ -32,7 +27,6 @@ export const createStrategyActorDefinition = (
   strategyManagerAddress: ActorAddress | null = null,
 ): ActorDefinition<StrategyActorState, StrategyActorMessage> => {
   const strategyId = strategy.getId();
-  const strategyName = strategy.getName();
   const logger = createContextualLogger(`StrategyActor-${strategyId}`);
 
   // État initial
@@ -42,12 +36,7 @@ export const createStrategyActorDefinition = (
     lastSignal: null,
     signalCount: 0,
     strategyManagerAddress,
-    active: true,
-    statistics: {
-      successfulTrades: 0,
-      failedTrades: 0,
-      profitLoss: 0
-    }
+    active: true
   };
 
   // Initialisation du comportement de l'acteur
@@ -64,7 +53,7 @@ export const createStrategyActorDefinition = (
           return { state };
         }
 
-        const { data, tradingBotActorAddress } = payload; // Added tradingBotActorAddress
+        const { data, tradingBotActorAddress } = payload;
         const symbol = (strategy.getConfig().parameters as any).symbol || '';
         
         // Vérifier que les données correspondent au symbole de la stratégie
@@ -89,7 +78,7 @@ export const createStrategyActorDefinition = (
               signal,
               symbol: data.symbol,
               timestamp: Date.now(),
-              tradingBotActorAddress // Forward tradingBotActorAddress
+              tradingBotActorAddress
             });
             
             // Mettre à jour l'état

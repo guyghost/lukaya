@@ -62,8 +62,6 @@ export type RiskManagerMessage =
   | { type: 'REBALANCE_PORTFOLIO' }
   | { type: 'REGISTER_ORDER_MANAGER'; orderManagerAddress: ActorAddress }
   | { type: 'ANALYZE_OPEN_POSITIONS' }
-  | { type: 'REGISTER_ORDER_MANAGER'; orderManagerAddress: ActorAddress }
-  | { type: 'ANALYZE_OPEN_POSITIONS' }
   | { type: 'CHECK_POSITION_VIABILITY'; symbol: string; currentPrice: number }
   | { type: 'CLOSE_POSITION'; symbol: string; reason: string };
 

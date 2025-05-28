@@ -847,11 +847,7 @@ export const createTradingBotService = (
           });
         }
 
-        // REMOVED: Direct signal processing and order generation
-        // const signals = await state.strategyService.processMarketData(data);
-        // for (const [strategyId, signal] of Array.from(signals.entries())) {
-        //   ...
-        // }
+
 
         return { state };
       }
@@ -1260,8 +1256,6 @@ export const createTradingBotService = (
                 marketData.price
               );
               logger.info(`Position analysis for ${symbol}: ${JSON.stringify(analysis)}`);
-              // Removed: if (analysis.shouldClose) { ... }
-              // Closing logic is likely handled by POSITION_VIABILITY_RESULT or internal mechanisms.
             } else {
               logger.warn(`TakeProfitIntegrator not available for position analysis of ${symbol}`);
             }
@@ -1460,7 +1454,6 @@ export const createTradingBotService = (
       logger.info("Stopping Trading Bot Service");
       if (tradingBotActorAddress) {
         actorSystem.send(tradingBotActorAddress, { type: "STOP" });
-        // actorSystem.stop(tradingBotActorAddress); // This would be a hard stop. Prefer graceful shutdown via message.
       } else {
         logger.warn("Trading Bot Actor address not available to send STOP command.");
       }
