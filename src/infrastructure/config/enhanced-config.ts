@@ -16,7 +16,7 @@ import {
 
 // Schema de validation pour les stratégies
 const strategyConfigSchema = z.object({
-  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern']), // Added rsi-div, kept rsi-divergence for backwards compatibility
+  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern', 'scalping-entry-exit']), // Added scalping-entry-exit
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).default(0.25),
   parameters: z.record(z.unknown()).default({}),
@@ -232,6 +232,26 @@ export const loadConfig = (): ConfigType => {
           patternConfirmationPercentage: Number(process.env.PATTERN_CONFIRMATION_PCT || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].patternConfirmationPercentage),
           symbol: symbol.trim(),
           positionSize: Number(process.env.HARMONIC_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].positionSize),
+        },
+      },
+      {
+        type: "scalping-entry-exit" as const,
+        enabled: process.env.SCALPING_ENABLED !== 'false',
+        weight: Number(process.env.SCALPING_WEIGHT || 0.25),
+        parameters: {
+          fastEmaPeriod: Number(process.env.SCALPING_FAST_EMA_PERIOD || 9),
+          slowEmaPeriod: Number(process.env.SCALPING_SLOW_EMA_PERIOD || 21),
+          rsiPeriod: Number(process.env.SCALPING_RSI_PERIOD || 14),
+          momentumPeriod: Number(process.env.SCALPING_MOMENTUM_PERIOD || 10),
+          maxHoldingPeriod: Number(process.env.SCALPING_MAX_HOLDING_PERIOD || 30),
+          profitTargetPercent: Number(process.env.SCALPING_PROFIT_TARGET || 0.005),
+          stopLossPercent: Number(process.env.SCALPING_STOP_LOSS || 0.003),
+          rsiOverboughtLevel: Number(process.env.SCALPING_RSI_OVERBOUGHT || 70),
+          rsiOversoldLevel: Number(process.env.SCALPING_RSI_OVERSOLD || 30),
+          momentumThreshold: Number(process.env.SCALPING_MOMENTUM_THRESHOLD || 0.002),
+          priceDeviationThreshold: Number(process.env.SCALPING_PRICE_DEVIATION || 0.001),
+          symbol: symbol.trim(),
+          positionSize: Number(process.env.SCALPING_POSITION_SIZE || 0.1),
         },
       },
     ]).flat(),

@@ -2,7 +2,7 @@ import { BacktestUiAdapter } from '../../adapters/primary/backtest-ui.adapter';
 import { BacktestConfig } from '../models/backtest.model';
 import { createContextualLogger } from '../../infrastructure/logging/enhanced-logger';
 import { createStrategyService } from '../../domain/services/strategy.service';
-import { ValidationError, errorHandler } from '../../shared/errors';
+import { errorHandler } from '../../shared/errors';
 import { Result } from '../../shared/types';
 import { result } from '../../shared/utils';
 import fs from 'fs';

@@ -14,6 +14,7 @@ import { createRsiDivergenceStrategy } from "../primary/rsi-divergence.strategy"
 import { createVolumeAnalysisStrategy } from "../primary/volume-analysis.strategy";
 import { createElliottWaveStrategy } from "../primary/elliott-wave.strategy";
 import { createHarmonicPatternStrategy } from "../primary/harmonic-pattern.strategy";
+import { createScalpingEntryExitStrategy } from "../primary/scalping-entry-exit.strategy";
 
 // Types pour les configurations de stratégies
 export interface RsiDivergenceConfig {
@@ -83,12 +84,36 @@ export interface HarmonicPatternConfig {
   useLimitOrders?: boolean;
 }
 
+export interface ScalpingEntryExitConfig {
+  fastEmaPeriod: number;
+  slowEmaPeriod: number;
+  rsiPeriod: number;
+  momentumPeriod: number;
+  symbol: string;
+  positionSize: number;
+  maxHoldingPeriod: number; // En nombre de candles
+  profitTargetPercent: number;
+  stopLossPercent: number;
+  rsiOverboughtLevel: number;
+  rsiOversoldLevel: number;
+  momentumThreshold: number;
+  priceDeviationThreshold: number;
+  maxSlippagePercent?: number;
+  minLiquidityRatio?: number;
+  riskPerTrade?: number;
+  accountSize?: number;
+  maxCapitalPerTrade?: number;
+  limitOrderBuffer?: number;
+  useLimitOrders?: boolean;
+}
+
 // Union type pour toutes les configurations possibles
 export type StrategyConfigMap = {
   [StrategyType.RSI_DIVERGENCE]: RsiDivergenceConfig;
   [StrategyType.VOLUME_ANALYSIS]: VolumeAnalysisConfig;
   [StrategyType.ELLIOTT_WAVE]: ElliottWaveConfig;
   [StrategyType.HARMONIC_PATTERN]: HarmonicPatternConfig;
+  [StrategyType.SCALPING_ENTRY_EXIT]: ScalpingEntryExitConfig;
 };
 
 /**
@@ -136,6 +161,10 @@ export class StrategyFactory {
           strategy = createHarmonicPatternStrategy(config as HarmonicPatternConfig);
           break;
 
+        case StrategyType.SCALPING_ENTRY_EXIT:
+          strategy = createScalpingEntryExitStrategy(config as ScalpingEntryExitConfig);
+          break;
+
         default:
           throw new Error(`Type de stratégie non supporté: ${type}`);
       }
@@ -162,6 +191,7 @@ export class StrategyFactory {
       StrategyType.VOLUME_ANALYSIS,
       StrategyType.ELLIOTT_WAVE,
       StrategyType.HARMONIC_PATTERN,
+      StrategyType.SCALPING_ENTRY_EXIT,
     ];
   }
 
@@ -232,6 +262,31 @@ export class StrategyFactory {
           }
           if (typeof harmonicConfig.fibRetracementTolerance !== 'number' || harmonicConfig.fibRetracementTolerance <= 0 || harmonicConfig.fibRetracementTolerance > 0.1) {
             return result.error(new Error("Fib retracement tolerance doit être un nombre entre 0 et 0.1"));
+          }
+          break;
+
+        case StrategyType.SCALPING_ENTRY_EXIT:
+          const scalpingConfig = config as ScalpingEntryExitConfig;
+          if (typeof scalpingConfig.fastEmaPeriod !== 'number' || scalpingConfig.fastEmaPeriod <= 0) {
+            return result.error(new Error("Fast EMA period doit être un nombre positif"));
+          }
+          if (typeof scalpingConfig.slowEmaPeriod !== 'number' || scalpingConfig.slowEmaPeriod <= 0) {
+            return result.error(new Error("Slow EMA period doit être un nombre positif"));
+          }
+          if (scalpingConfig.fastEmaPeriod >= scalpingConfig.slowEmaPeriod) {
+            return result.error(new Error("Fast EMA period doit être inférieur à Slow EMA period"));
+          }
+          if (typeof scalpingConfig.rsiPeriod !== 'number' || scalpingConfig.rsiPeriod < 2) {
+            return result.error(new Error("RSI period doit être un nombre >= 2"));
+          }
+          if (typeof scalpingConfig.rsiOverboughtLevel !== 'number' || scalpingConfig.rsiOverboughtLevel < 0 || scalpingConfig.rsiOverboughtLevel > 100) {
+            return result.error(new Error("RSI overbought level doit être un nombre entre 0 et 100"));
+          }
+          if (typeof scalpingConfig.rsiOversoldLevel !== 'number' || scalpingConfig.rsiOversoldLevel < 0 || scalpingConfig.rsiOversoldLevel > 100) {
+            return result.error(new Error("RSI oversold level doit être un nombre entre 0 et 100"));
+          }
+          if (scalpingConfig.rsiOversoldLevel >= scalpingConfig.rsiOverboughtLevel) {
+            return result.error(new Error("RSI oversold level doit être inférieur à RSI overbought level"));
           }
           break;
       }
@@ -321,6 +376,31 @@ export class StrategyFactory {
             riskPerTrade: 0.01,
             stopLossPercent: 0.02,
             maxCapitalPerTrade: 0.25,
+            limitOrderBuffer: 0.0005,
+            useLimitOrders: false
+          };
+          break;
+
+        case StrategyType.SCALPING_ENTRY_EXIT:
+          defaultConfig = {
+            fastEmaPeriod: 9,
+            slowEmaPeriod: 21,
+            rsiPeriod: 14,
+            momentumPeriod: 10,
+            symbol,
+            positionSize,
+            maxHoldingPeriod: 30, // 30 candles max
+            profitTargetPercent: 0.005, // 0.5%
+            stopLossPercent: 0.003, // 0.3%
+            rsiOverboughtLevel: 70,
+            rsiOversoldLevel: 30,
+            momentumThreshold: 0.002, // 0.2%
+            priceDeviationThreshold: 0.001, // 0.1%
+            maxSlippagePercent: 1.0,
+            minLiquidityRatio: 10.0,
+            riskPerTrade: 0.01,
+            accountSize: 10000,
+            maxCapitalPerTrade: 0.1,
             limitOrderBuffer: 0.0005,
             useLimitOrders: false
           };

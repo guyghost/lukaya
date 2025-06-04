@@ -3,7 +3,7 @@ export default {
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.ts', '**/*.spec.ts'],
-  setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'],
+  // setupFilesAfterEnv: ['<rootDir>/src/tests/jest.setup.ts'], // Commenté car le fichier n'existe pas
   collectCoverage: true,
   collectCoverageFrom: [
     'src/**/*.ts',

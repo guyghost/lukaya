@@ -3,7 +3,7 @@
  * Provides enhanced tools for handling asynchronous operations with the Result pattern
  */
 
-import { Result, AsyncResult } from '../types';
+import { Result } from '../types';
 import { result } from './index';
 import { resultUtils } from './result-utils';
 import { errorHandler } from '../errors/error-handler';

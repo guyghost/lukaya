@@ -143,5 +143,26 @@ export const DEFAULT_STRATEGY_CONFIGS = {
     maxCapitalPerTrade: 0.10,
     limitOrderBuffer: 0.0001,
     useLimitOrders: false,
+  },
+  'scalping-entry-exit': {
+    fastEmaPeriod: 9, // EMA rapide pour les signaux d'entrée/sortie
+    slowEmaPeriod: 21, // EMA lente pour confirmation de tendance
+    rsiPeriod: 14, // Période RSI pour filtrage
+    momentumPeriod: 10, // Période momentum pour confirmation
+    maxHoldingPeriod: 30, // Maximum 30 candles avant fermeture forcée
+    profitTargetPercent: 0.5, // Objectif de profit 0.5%
+    stopLossPercent: 0.3, // Stop loss serré à 0.3%
+    rsiOverboughtLevel: 70, // Niveau RSI surachat
+    rsiOversoldLevel: 30, // Niveau RSI survente
+    momentumThreshold: 0.02, // Seuil de momentum (2%)
+    priceDeviationThreshold: 0.05, // Seuil de déviation prix (5%)
+    positionSize: 0.008, // Taille position légèrement plus élevée pour scalping
+    maxSlippagePercent: 0.2, // Slippage ultra-réduit pour scalping
+    minLiquidityRatio: 8.0, // Liquidité élevée requise pour scalping
+    riskPerTrade: 0.002, // Risque réduit par trade pour scalping fréquent
+    accountSize: 10000,
+    maxCapitalPerTrade: 0.08, // Capital réduit pour plus de positions simultanées
+    limitOrderBuffer: 0.0001,
+    useLimitOrders: false, // Ordres market pour rapidité maximale
   }
 };

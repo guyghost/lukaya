@@ -71,7 +71,94 @@ export const createPerformanceTrackerActorDefinition = (
     config: mergedConfig
   };
 
+  // Log de démarrage
+  logger.info("🚀 Initialisation du Performance Tracker", {
+    config: mergedConfig,
+    startingBalance: initialAccountMetrics.startingBalance,
+    timestamp: new Date().toISOString()
+  });
+
   // Helper functions
+  const logTradeStatistics = (state: PerformanceTrackerState) => {
+    const openTradesCount = Object.keys(state.openTrades).length;
+    const totalTrades = state.trades.length;
+    const closedTrades = state.trades.filter(trade => trade.status === 'closed');
+    
+    // Stats par stratégie
+    const strategyStats = new Map<string, { trades: number; openTrades: number; totalPnl: number }>();
+    
+    // Compter les trades fermés par stratégie
+    closedTrades.forEach(trade => {
+      const strategyId = trade.strategyId;
+      const stats = strategyStats.get(strategyId) || { trades: 0, openTrades: 0, totalPnl: 0 };
+      stats.trades += 1;
+      stats.totalPnl += trade.pnl || 0;
+      strategyStats.set(strategyId, stats);
+    });
+    
+    // Compter les trades ouverts par stratégie
+    Object.values(state.openTrades).forEach(trade => {
+      const strategyId = trade.strategyId;
+      const stats = strategyStats.get(strategyId) || { trades: 0, openTrades: 0, totalPnl: 0 };
+      stats.openTrades += 1;
+      strategyStats.set(strategyId, stats);
+    });
+    
+    logger.info("📊 Statistiques générales des trades", {
+      totalTrades,
+      closedTrades: closedTrades.length,
+      openTrades: openTradesCount,
+      totalPnlRealized: closedTrades.reduce((sum, trade) => sum + (trade.pnl || 0), 0)
+    });
+    
+    // Log des stats par stratégie
+    strategyStats.forEach((stats, strategyId) => {
+      logger.info(`📈 Stats stratégie: ${strategyId}`, {
+        strategy: strategyId,
+        totalTrades: stats.trades,
+        openTrades: stats.openTrades,
+        totalPnlRealized: stats.totalPnl,
+        avgPnlPerTrade: stats.trades > 0 ? (stats.totalPnl / stats.trades).toFixed(2) : '0'
+      });
+    });
+  };
+  
+  const logOpenPositionsDetail = (state: PerformanceTrackerState, currentPrices?: Record<string, number>) => {
+    const openTrades = Object.values(state.openTrades);
+    
+    if (openTrades.length === 0) {
+      logger.info("💼 Aucune position ouverte");
+      return;
+    }
+    
+    logger.info(`💼 Positions ouvertes (${openTrades.length}):`);
+    
+    openTrades.forEach(trade => {
+      const currentPrice = currentPrices?.[trade.symbol];
+      let unrealizedPnl = 'N/A';
+      
+      if (currentPrice && trade.entryPrice) {
+        const priceDiff = currentPrice - trade.entryPrice;
+        const quantity = trade.quantity || 1;
+        // BUY = position longue, SELL = position courte
+        const multiplier = trade.entryOrder.side === 'BUY' ? 1 : -1;
+        unrealizedPnl = (priceDiff * quantity * multiplier).toFixed(2);
+      }
+      
+      logger.info(`🔹 Position ${trade.id}`, {
+        symbol: trade.symbol,
+        strategy: trade.strategyId,
+        side: trade.entryOrder.side,
+        entryPrice: trade.entryPrice,
+        currentPrice: currentPrice || 'N/A',
+        quantity: trade.quantity,
+        unrealizedPnl,
+        openedAt: new Date(trade.entryTime).toISOString(),
+        durationMinutes: Math.round((Date.now() - trade.entryTime) / (1000 * 60))
+      });
+    });
+  };
+
   const calculateSymbolPerformance = (
     symbol: string,
     trades: TradeEntry[]
@@ -171,10 +258,16 @@ export const createPerformanceTrackerActorDefinition = (
       case "TRADE_OPENED": {
         const { trade } = payload;
         
-        logger.info(`Nouveau trade ouvert : ${trade.id}`, {
+        logger.info(`🚀 Nouveau trade ouvert : ${trade.id}`, {
+          tradeId: trade.id,
           symbol: trade.symbol,
           strategy: trade.strategyId,
-          entryPrice: trade.entryPrice
+          side: trade.entryOrder.side,
+          entryPrice: trade.entryPrice,
+          quantity: trade.quantity,
+          entryTime: new Date(trade.entryTime).toISOString(),
+          fees: trade.fees,
+          tags: trade.tags
         });
         
         // Add to open trades
@@ -189,24 +282,41 @@ export const createPerformanceTrackerActorDefinition = (
           trade
         ];
         
+        // Log des statistiques après l'ouverture
+        const newState = {
+          ...state,
+          trades: updatedTrades,
+          openTrades: updatedOpenTrades,
+        };
+        
+        logTradeStatistics(newState);
+        
         return { 
-          state: {
-            ...state,
-            trades: updatedTrades,
-            openTrades: updatedOpenTrades,
-          }
+          state: newState
         };
       }
       
       case "TRADE_CLOSED": {
         const { trade } = payload;
         
-        logger.info(`Trade clôturé : ${trade.id}`, {
+        const profitEmoji = (trade.pnl || 0) > 0 ? "💰" : (trade.pnl || 0) < 0 ? "📉" : "⚖️";
+        
+        logger.info(`${profitEmoji} Trade clôturé : ${trade.id}`, {
+          tradeId: trade.id,
           symbol: trade.symbol,
           strategy: trade.strategyId,
+          side: trade.entryOrder.side,
           entryPrice: trade.entryPrice,
           exitPrice: trade.exitPrice,
-          pnl: trade.pnl
+          quantity: trade.quantity,
+          pnl: trade.pnl,
+          pnlPercent: trade.pnlPercent,
+          fees: trade.fees,
+          duration: trade.duration,
+          durationMinutes: trade.duration ? Math.round(trade.duration / (1000 * 60)) : 'N/A',
+          entryTime: new Date(trade.entryTime).toISOString(),
+          exitTime: trade.exitTime ? new Date(trade.exitTime).toISOString() : 'N/A',
+          tags: trade.tags
         });
         
         // Remove from open trades
@@ -234,14 +344,19 @@ export const createPerformanceTrackerActorDefinition = (
           [trade.strategyId]: calculateStrategyPerformance(trade.strategyId, updatedTrades)
         };
         
+        const newState = {
+          ...state,
+          trades: updatedTrades,
+          openTrades: remainingOpenTrades,
+          symbolPerformance: updatedSymbolPerformance,
+          strategyPerformance: updatedStrategyPerformance,
+        };
+        
+        // Log des statistiques après la clôture
+        logTradeStatistics(newState);
+        
         return { 
-          state: {
-            ...state,
-            trades: updatedTrades,
-            openTrades: remainingOpenTrades,
-            symbolPerformance: updatedSymbolPerformance,
-            strategyPerformance: updatedStrategyPerformance,
-          }
+          state: newState
         };
       }
       
@@ -260,14 +375,90 @@ export const createPerformanceTrackerActorDefinition = (
           [symbol]: updatedPrices
         };
         
+        const newState = {
+          ...state,
+          priceHistory: updatedPriceHistory
+        };
+        
+        // Log des positions ouvertes pour ce symbole avec le nouveau prix
+        const symbolOpenTrades = Object.values(state.openTrades).filter(trade => trade.symbol === symbol);
+        if (symbolOpenTrades.length > 0) {
+          logger.debug(`💹 Mise à jour prix ${symbol}: ${price}`, {
+            symbol,
+            newPrice: price,
+            timestamp: new Date(timestamp).toISOString(),
+            openPositions: symbolOpenTrades.length
+          });
+          
+          // Calculer et logger le PNL unrealized pour ce symbole
+          symbolOpenTrades.forEach(trade => {
+            if (trade.entryPrice) {
+              const priceDiff = price - trade.entryPrice;
+              const quantity = trade.quantity || 1;
+              const multiplier = trade.entryOrder.side === 'BUY' ? 1 : -1;
+              const unrealizedPnl = priceDiff * quantity * multiplier;
+              
+              logger.debug(`🔄 PNL unrealized ${trade.id}`, {
+                tradeId: trade.id,
+                symbol: trade.symbol,
+                strategy: trade.strategyId,
+                side: trade.entryOrder.side,
+                entryPrice: trade.entryPrice,
+                currentPrice: price,
+                unrealizedPnl: unrealizedPnl.toFixed(2),
+                unrealizedPnlPercent: ((unrealizedPnl / (trade.entryPrice * quantity)) * 100).toFixed(2)
+              });
+            }
+          });
+        }
+        
         return { 
-          state: {
-            ...state,
-            priceHistory: updatedPriceHistory
-          }
+          state: newState
         };
       }
       
+      case "LOG_POSITIONS_SUMMARY": {
+        const { currentPrices } = payload;
+        
+        logger.info("📋 === RÉSUMÉ DES POSITIONS ===");
+        
+        // Log des statistiques générales
+        logTradeStatistics(state);
+        
+        // Log des positions ouvertes avec PNL unrealized
+        logOpenPositionsDetail(state, currentPrices);
+        
+        // Log des performances par stratégie
+        Object.entries(state.strategyPerformance).forEach(([strategyId, performance]) => {
+          logger.info(`📊 Performance stratégie ${strategyId}`, {
+            strategy: strategyId,
+            trades: performance.trades,
+            winRate: (performance.winRate * 100).toFixed(1) + '%',
+            netProfit: performance.netProfit.toFixed(2),
+            active: performance.active,
+            lastUpdated: new Date(performance.lastUpdated).toISOString()
+          });
+        });
+        
+        // Log des performances par symbole  
+        Object.entries(state.symbolPerformance).forEach(([symbol, performance]) => {
+          if (performance.trades > 0) {
+            logger.info(`📈 Performance symbole ${symbol}`, {
+              symbol,
+              trades: performance.trades,
+              winRate: (performance.winRate * 100).toFixed(1) + '%',
+              netProfit: performance.netProfit.toFixed(2),
+              winningTrades: performance.winningTrades,
+              losingTrades: performance.losingTrades
+            });
+          }
+        });
+        
+        logger.info("📋 === FIN RÉSUMÉ ===");
+        
+        return { state };
+      }
+
       case "GET_ACCOUNT_METRICS": {
         logger.debug("Retour des métriques du compte");
         return { state };
@@ -299,16 +490,26 @@ export const createPerformanceTrackerActorDefinition = (
       
       case "UPDATE_CONFIG": {
         const { config } = payload;
-        logger.info("Mise à jour de la configuration du tracker de performance", config);
-        return {
-          state: {
-            ...state,
-            config: {
-              ...state.config,
-              ...config
-            }
+        logger.info("⚙️ Mise à jour de la configuration du tracker de performance", {
+          oldConfig: state.config,
+          newConfigPart: config,
+          mergedConfig: { ...state.config, ...config }
+        });
+        
+        const newState = {
+          ...state,
+          config: {
+            ...state.config,
+            ...config
           }
         };
+        
+        // Log des statistiques après la mise à jour de config
+        if (config.realTimeUpdates !== undefined || config.trackOpenPositions !== undefined) {
+          logTradeStatistics(newState);
+        }
+        
+        return { state: newState };
       }
       
       default:

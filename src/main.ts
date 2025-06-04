@@ -238,7 +238,8 @@ class LukayaTradingApp implements LukayaApp {
       'rsi-divergence': StrategyType.RSI_DIVERGENCE,  // Keep for backwards compatibility
       'volume-analysis': StrategyType.VOLUME_ANALYSIS,
       'elliott-wave': StrategyType.ELLIOTT_WAVE,
-      'harmonic-pattern': StrategyType.HARMONIC_PATTERN
+      'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
+      'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT
     };
 
     const strategyType = typeMap[typeString];

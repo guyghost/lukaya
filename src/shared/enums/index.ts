@@ -29,10 +29,11 @@ export enum StrategyStatus {
 
 // Types de stratégies
 export enum StrategyType {
-  RSI_DIVERGENCE = 'rsi-div',
+  RSI_DIVERGENCE = 'rsi-divergence',
   VOLUME_ANALYSIS = 'volume-analysis',
   ELLIOTT_WAVE = 'elliott-wave',
   HARMONIC_PATTERN = 'harmonic-pattern',
+  SCALPING_ENTRY_EXIT = 'scalping-entry-exit',
 }
 
 // Niveaux de log

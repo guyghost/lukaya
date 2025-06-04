@@ -78,6 +78,7 @@ export type PerformanceTrackerMessage =
   | { type: "TRADE_CLOSED"; trade: TradeEntry }
   | { type: "TRADE_UPDATED"; trade: TradeEntry }
   | { type: "UPDATE_PRICE"; symbol: string; price: number; timestamp: number }
+  | { type: "LOG_POSITIONS_SUMMARY"; currentPrices?: Record<string, number> }
   | { type: "GET_ACCOUNT_METRICS" }
   | { type: "GET_SYMBOL_PERFORMANCE"; symbol: string }
   | { type: "GET_STRATEGY_PERFORMANCE"; strategyId: string }
