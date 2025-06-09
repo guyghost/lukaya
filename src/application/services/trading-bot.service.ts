@@ -19,8 +19,12 @@ import {
 } from "../../shared";
 import { Order } from "../../domain/models/market.model";
 import {
-  createStrategyService,
-  StrategyService,
+  StrategiesState, // Added
+  registerStrategy, // Added
+  unregisterStrategy, // Added
+  getStrategy, // Added
+  getAllStrategies, // Added
+  generateOrderForStrategy, // Added
 } from "../../domain/services/strategy.service";
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
 import { result } from "../../shared/utils";
@@ -74,7 +78,7 @@ interface PendingSignal {
 
 interface TradingBotState {
   isRunning: boolean;
-  strategyService: StrategyService;
+  strategies: StrategiesState; // Added
   marketActors: Map<string, ActorAddress>;
   strategyActors: Map<string, ActorAddress>; // Acteurs individuels pour chaque stratégie
   orderHistory: Order[];
@@ -275,7 +279,7 @@ export const createTradingBotService = (
 
   const initialState: TradingBotState = {
     isRunning: false,
-    strategyService: createStrategyService(),
+    strategies: new Map<string, Strategy>(), // Added
     marketActors: new Map(),
     strategyActors: new Map(),
     orderHistory: [],
@@ -380,7 +384,7 @@ export const createTradingBotService = (
           
           // Créer les acteurs de stratégie pour les stratégies qui ont été ajoutées avant
           // l'initialisation du gestionnaire de stratégies
-          for (const strategy of state.strategyService.getAllStrategies()) {
+          for (const strategy of getAllStrategies(state.strategies)) { // Modified
             try {
               const strategyId = strategy.getId();
               if (!state.strategyActors.has(strategyId)) {
@@ -626,7 +630,7 @@ export const createTradingBotService = (
         logger.info(`Adding strategy: ${strategy.getName()}`);
 
         // Register the strategy
-        state.strategyService.registerStrategy(strategy);
+        state.strategies = registerStrategy(state.strategies, strategy); // Modified
 
         // Extract symbol from strategy and create/start market actor if needed
         // Each symbol has its own market actor that publishes market data
@@ -727,7 +731,7 @@ export const createTradingBotService = (
         logger.info(`Removing strategy: ${strategyId}`);
 
         // Get the strategy before removing it to check its symbol
-        const strategy = state.strategyService.getStrategy(strategyId);
+        const strategy = getStrategy(state.strategies, strategyId); // Modified
         const strategySymbol = strategy
           ? (strategy.getConfig().parameters as Record<string, string>).symbol
           : undefined;
@@ -764,12 +768,11 @@ export const createTradingBotService = (
         }
 
         // Unregister the strategy from the service
-        state.strategyService.unregisterStrategy(strategyId);
+        state.strategies = unregisterStrategy(state.strategies, strategyId); // Modified
 
         // Check if any other strategies are using this symbol
         if (strategySymbol) {
-          const stillInUse = state.strategyService
-            .getAllStrategies()
+          const stillInUse = getAllStrategies(state.strategies) // Modified
             .some(
               (s) =>
                 (s.getConfig().parameters as Record<string, string>).symbol ===
@@ -806,7 +809,7 @@ export const createTradingBotService = (
 
         // Envoyer les données de marché à tous les acteurs de stratégie concernés
         for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
-          const strategy = state.strategyService.getStrategy(strategyId);
+          const strategy = getStrategy(state.strategies, strategyId); // Modified
           if (!strategy) continue;
           
           const strategySymbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
@@ -881,11 +884,7 @@ export const createTradingBotService = (
           source: "TradingBotService"
         });
 
-        const order = state.strategyService.generateOrder(
-          strategyId,
-          signal,
-          marketData,
-        );
+        const order = generateOrderForStrategy(state.strategies, strategyId, signal, marketData); // Modified
 
         // DEBUG: Add comprehensive logging for order generation
         logger.info(`🔍 [DEBUG ORDER] Order generation result for strategy ${strategyId}:`, {

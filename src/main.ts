@@ -8,7 +8,7 @@ import { loadConfig, getNetworkFromString } from "./infrastructure/config/enhanc
 import { initializeLogger, createContextualLogger } from "./infrastructure/logging/enhanced-logger";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
 import { createTradingBotService, TradingBotService } from "./application/services/trading-bot.service";
-import { StrategyFactory } from "./adapters/strategies";
+import { createStrategy } from "./adapters/strategies/strategy-factory"; // Corrected import path
 import { ServiceStatus, StrategyType } from "./shared/enums";
 import { Result } from "./shared/types";
 import { result } from "./shared/utils";
@@ -258,7 +258,7 @@ class LukayaTradingApp implements LukayaApp {
     try {
       this.logger.info("🎯 Configuration des stratégies de trading...");
 
-      const strategyFactory = new StrategyFactory();
+      // const strategyFactory = new StrategyFactory(); // Removed StrategyFactory instantiation
       let addedStrategies = 0;
 
       for (const strategyConfig of this.config.strategies) {
@@ -282,7 +282,7 @@ class LukayaTradingApp implements LukayaApp {
           }
 
           // Créer la stratégie avec le type enum
-          const strategy = await strategyFactory.createStrategy(
+          const strategy = await createStrategy( // Use imported createStrategy function
             strategyType,
             strategyConfig.parameters as any // Cast to any to handle the Record<string, unknown> issue
           );
