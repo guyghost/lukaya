@@ -1,0 +1,12 @@
+{
+  "symbol": "BTC-USD",
+  "startDate": "2024-01-01T00:00:00.000Z",
+  "endDate": "2024-01-07T00:00:00.000Z",
+  "initialBalance": 10000,
+  "tradingFees": 0.1,
+  "slippage": 0.05,
+  "dataResolution": "1h",
+  "includeWeekends": false,
+  "enableStopLoss": false,
+  "enableTakeProfit": false
+}

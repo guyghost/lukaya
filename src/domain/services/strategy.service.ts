@@ -57,8 +57,58 @@ export const generateOrderForStrategy = (
 // L'ancienne fonction createStrategyService n'est plus nécessaire dans cette approche purement fonctionnelle.
 // Si vous avez besoin de regrouper ces fonctions, vous pouvez exporter un objet les contenant,
 // mais elles opéreront toujours sur l'état passé en argument.
+
+// Wrapper pour compatibilité avec l'API existante
+export interface StrategyService {
+  registerStrategy(strategy: Strategy): void;
+  unregisterStrategy(strategyId: string): void;
+  getStrategy(strategyId: string): Strategy | undefined;
+  getStrategyById(strategyId: string): Strategy | undefined;
+  getAllStrategies(): Record<string, Strategy>;
+  processMarketData(data: MarketData): Promise<Map<string, StrategySignal | null>>;
+  generateOrder(strategyId: string, signal: StrategySignal, marketData: MarketData): OrderParams | null;
+}
+
+export const createStrategyService = (): StrategyService => {
+  let state: StrategiesState = new Map();
+  
+  return {
+    registerStrategy: (strategy: Strategy) => {
+      state = registerStrategy(state, strategy);
+    },
+    
+    unregisterStrategy: (strategyId: string) => {
+      state = unregisterStrategy(state, strategyId);
+    },
+    
+    getStrategy: (strategyId: string) => {
+      return getStrategy(state, strategyId);
+    },
+    
+    getStrategyById: (strategyId: string) => {
+      return getStrategy(state, strategyId);
+    },
+    
+    getAllStrategies: () => {
+      const strategies = getAllStrategies(state);
+      const result: Record<string, Strategy> = {};
+      strategies.forEach(strategy => {
+        result[strategy.getId()] = strategy;
+      });
+      return result;
+    },
+    
+    processMarketData: (data: MarketData) => {
+      return processMarketDataForStrategies(state, data);
+    },
+    
+    generateOrder: (strategyId: string, signal: StrategySignal, marketData: MarketData) => {
+      return generateOrderForStrategy(state, strategyId, signal, marketData);
+    }
+  };
+};
+
 // Exemple de regroupement (optionnel) :
-/*
 export const StrategyServiceFunctions = {
   registerStrategy,
   unregisterStrategy,
@@ -67,7 +117,3 @@ export const StrategyServiceFunctions = {
   processMarketData: processMarketDataForStrategies,
   generateOrder: generateOrderForStrategy,
 };
-*/
-
-// Plus besoin de createStrategyService et de StrategyServiceState/StrategyService interfaces ici
-// si on adopte une approche purement fonctionnelle où l'état est géré explicitement à l'extérieur.

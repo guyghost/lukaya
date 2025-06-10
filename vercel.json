@@ -1,0 +1,33 @@
+{
+  "name": "lukaya-trading-bot-api",
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/api/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "maxDuration": 30
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/src/api/index.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/src/api/index.ts"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "functions": {
+    "src/api/index.ts": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "regions": ["fra1"]
+}
