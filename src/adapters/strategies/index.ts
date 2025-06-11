@@ -11,3 +11,4 @@ export type {
   ScalpingEntryExitConfig,
   StrategyConfigMap,
 } from './strategy-factory';
+export type { CoordinatedMultiStrategyConfig } from '../primary/coordinated-multi-strategy.strategy';

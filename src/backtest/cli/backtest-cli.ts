@@ -329,14 +329,15 @@ async function initializeStrategiesFromEnv(strategyService: StrategyService): Pr
     const strategyFactory = new StrategyFactory();
     
     // Helper function to convert strategy type string to enum
-    const getStrategyType = (typeString: string): StrategyType | null => {
-      const typeMap: Record<string, StrategyType> = {
+    const getStrategyType = (typeString: string): typeof StrategyType[keyof typeof StrategyType] | null => {
+      const typeMap: Record<string, typeof StrategyType[keyof typeof StrategyType]> = {
         'rsi-div': StrategyType.RSI_DIVERGENCE,
         'rsi-divergence': StrategyType.RSI_DIVERGENCE,
         'volume-analysis': StrategyType.VOLUME_ANALYSIS,
         'elliott-wave': StrategyType.ELLIOTT_WAVE,
         'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
         'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT,
+        'coordinated-multi-strategy': StrategyType.COORDINATED_MULTI_STRATEGY,
       };
       return typeMap[typeString] || null;
     };

@@ -16,7 +16,7 @@ import {
 
 // Schema de validation pour les stratégies
 const strategyConfigSchema = z.object({
-  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern', 'scalping-entry-exit']), // Added scalping-entry-exit
+  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern', 'scalping-entry-exit', 'coordinated-multi-strategy']), // Added coordinated-multi-strategy
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).default(0.25),
   parameters: z.record(z.unknown()).default({}),
@@ -263,6 +263,56 @@ export const loadConfig = (): ConfigType => {
           priceDeviationThreshold: Number(process.env.SCALPING_PRICE_DEVIATION_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].priceDeviationThreshold),
           symbol: symbol.trim(),
           positionSize: Number(process.env.SCALPING_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].positionSize),
+          accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
+          riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
+          maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),
+          minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || DEFAULT_TRADING_CONFIG.minLiquidityRatio),
+          maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
+          limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || DEFAULT_TRADING_CONFIG.limitOrderBuffer),
+          useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true' ? true : DEFAULT_TRADING_CONFIG.useLimitOrders,
+        },
+      },
+      {
+        type: "coordinated-multi-strategy" as const,
+        enabled: isStrategyActive("coordinated-multi-strategy"),
+        weight: Number(process.env.COORDINATED_WEIGHT || 0.5),
+        parameters: {
+          // Elliott Wave settings
+          waveDetectionLength: Number(process.env.COORDINATED_WAVE_DETECTION_LENGTH || 100),
+          priceSensitivity: Number(process.env.COORDINATED_PRICE_SENSITIVITY || 0.01),
+          
+          // Harmonic Pattern settings
+          detectionLength: Number(process.env.COORDINATED_DETECTION_LENGTH || 200),
+          fibRetracementTolerance: Number(process.env.COORDINATED_FIB_RETRACEMENT_TOLERANCE || 0.02),
+          patternConfirmationPercentage: Number(process.env.COORDINATED_PATTERN_CONFIRMATION_PCT || 80),
+          
+          // Volume Analysis settings
+          volumeThreshold: Number(process.env.COORDINATED_VOLUME_THRESHOLD || 1.5),
+          volumeMALength: Number(process.env.COORDINATED_VOLUME_MA_LENGTH || 20),
+          priceMALength: Number(process.env.COORDINATED_PRICE_MA_LENGTH || 10),
+          volumeSpikeFactor: Number(process.env.COORDINATED_VOLUME_SPIKE_FACTOR || 2.0),
+          
+          // Scalping settings
+          fastEmaPeriod: Number(process.env.COORDINATED_FAST_EMA_PERIOD || 20),
+          slowEmaPeriod: Number(process.env.COORDINATED_SLOW_EMA_PERIOD || 50),
+          rsiPeriod: Number(process.env.COORDINATED_RSI_PERIOD || 7),
+          momentumPeriod: Number(process.env.COORDINATED_MOMENTUM_PERIOD || 10),
+          maxHoldingPeriod: Number(process.env.COORDINATED_MAX_HOLDING_PERIOD || 15),
+          profitTargetPercent: Number(process.env.COORDINATED_PROFIT_TARGET_PERCENT || 0.003),
+          stopLossPercent: Number(process.env.COORDINATED_STOP_LOSS_PERCENT || 0.002),
+          rsiOverboughtLevel: Number(process.env.COORDINATED_RSI_OVERBOUGHT_LEVEL || 70),
+          rsiOversoldLevel: Number(process.env.COORDINATED_RSI_OVERSOLD_LEVEL || 30),
+          momentumThreshold: Number(process.env.COORDINATED_MOMENTUM_THRESHOLD || 0.002),
+          priceDeviationThreshold: Number(process.env.COORDINATED_PRICE_DEVIATION_THRESHOLD || 0.001),
+          
+          // Coordination settings
+          trendConfidenceThreshold: Number(process.env.COORDINATED_TREND_CONFIDENCE_THRESHOLD || 0.6),
+          patternConfidenceThreshold: Number(process.env.COORDINATED_PATTERN_CONFIDENCE_THRESHOLD || 0.5),
+          volumeConfidenceThreshold: Number(process.env.COORDINATED_VOLUME_CONFIDENCE_THRESHOLD || 0.4),
+          overallConfidenceThreshold: Number(process.env.COORDINATED_OVERALL_CONFIDENCE_THRESHOLD || 0.7),
+          
+          symbol: symbol.trim(),
+          positionSize: Number(process.env.COORDINATED_POSITION_SIZE || 0.01),
           accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
           riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
           maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),

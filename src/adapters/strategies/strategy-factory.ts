@@ -15,6 +15,7 @@ import { createVolumeAnalysisStrategy } from "../primary/volume-analysis.strateg
 import { createElliottWaveStrategy } from "../primary/elliott-wave.strategy";
 import { createHarmonicPatternStrategy } from "../primary/harmonic-pattern.strategy";
 import { createScalpingEntryExitStrategy } from "../primary/scalping-entry-exit.strategy";
+import { createCoordinatedMultiStrategy, CoordinatedMultiStrategyConfig } from "../primary/coordinated-multi-strategy.strategy";
 
 // Types pour les configurations de stratégies
 export interface RsiDivergenceConfig {
@@ -114,6 +115,7 @@ export type StrategyConfigMap = {
   [StrategyType.ELLIOTT_WAVE]: ElliottWaveConfig;
   [StrategyType.HARMONIC_PATTERN]: HarmonicPatternConfig;
   [StrategyType.SCALPING_ENTRY_EXIT]: ScalpingEntryExitConfig;
+  [StrategyType.COORDINATED_MULTI_STRATEGY]: CoordinatedMultiStrategyConfig;
 };
 
 /**
@@ -165,6 +167,10 @@ export class StrategyFactory {
           strategy = createScalpingEntryExitStrategy(config as ScalpingEntryExitConfig);
           break;
 
+        case StrategyType.COORDINATED_MULTI_STRATEGY:
+          strategy = createCoordinatedMultiStrategy(config as CoordinatedMultiStrategyConfig);
+          break;
+
         default:
           throw new Error(`Type de stratégie non supporté: ${type}`);
       }
@@ -192,6 +198,7 @@ export class StrategyFactory {
       StrategyType.ELLIOTT_WAVE,
       StrategyType.HARMONIC_PATTERN,
       StrategyType.SCALPING_ENTRY_EXIT,
+      StrategyType.COORDINATED_MULTI_STRATEGY,
     ];
   }
 
@@ -287,6 +294,71 @@ export class StrategyFactory {
           }
           if (scalpingConfig.rsiOversoldLevel >= scalpingConfig.rsiOverboughtLevel) {
             return result.error(new Error("RSI oversold level doit être inférieur à RSI overbought level"));
+          }
+          break;
+
+        case StrategyType.COORDINATED_MULTI_STRATEGY:
+          const coordinatedConfig = config as CoordinatedMultiStrategyConfig;
+          
+          // Validate Elliott Wave settings
+          if (typeof coordinatedConfig.waveDetectionLength !== 'number' || coordinatedConfig.waveDetectionLength <= 0) {
+            return result.error(new Error("Wave detection length doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.priceSensitivity !== 'number' || coordinatedConfig.priceSensitivity <= 0) {
+            return result.error(new Error("Price sensitivity doit être un nombre positif"));
+          }
+          
+          // Validate Harmonic Pattern settings
+          if (typeof coordinatedConfig.detectionLength !== 'number' || coordinatedConfig.detectionLength <= 0) {
+            return result.error(new Error("Detection length doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.fibRetracementTolerance !== 'number' || coordinatedConfig.fibRetracementTolerance <= 0 || coordinatedConfig.fibRetracementTolerance > 0.1) {
+            return result.error(new Error("Fib retracement tolerance doit être un nombre entre 0 et 0.1"));
+          }
+          if (typeof coordinatedConfig.patternConfirmationPercentage !== 'number' || coordinatedConfig.patternConfirmationPercentage < 0 || coordinatedConfig.patternConfirmationPercentage > 100) {
+            return result.error(new Error("Pattern confirmation percentage doit être un nombre entre 0 et 100"));
+          }
+          
+          // Validate Volume Analysis settings
+          if (typeof coordinatedConfig.volumeThreshold !== 'number' || coordinatedConfig.volumeThreshold <= 0) {
+            return result.error(new Error("Volume threshold doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.volumeMALength !== 'number' || coordinatedConfig.volumeMALength <= 0) {
+            return result.error(new Error("Volume MA length doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.priceMALength !== 'number' || coordinatedConfig.priceMALength <= 0) {
+            return result.error(new Error("Price MA length doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.volumeSpikeFactor !== 'number' || coordinatedConfig.volumeSpikeFactor <= 1) {
+            return result.error(new Error("Volume spike factor doit être un nombre > 1"));
+          }
+          
+          // Validate Scalping settings
+          if (typeof coordinatedConfig.fastEmaPeriod !== 'number' || coordinatedConfig.fastEmaPeriod <= 0) {
+            return result.error(new Error("Fast EMA period doit être un nombre positif"));
+          }
+          if (typeof coordinatedConfig.slowEmaPeriod !== 'number' || coordinatedConfig.slowEmaPeriod <= 0) {
+            return result.error(new Error("Slow EMA period doit être un nombre positif"));
+          }
+          if (coordinatedConfig.fastEmaPeriod >= coordinatedConfig.slowEmaPeriod) {
+            return result.error(new Error("Fast EMA period doit être inférieur à Slow EMA period"));
+          }
+          if (typeof coordinatedConfig.rsiPeriod !== 'number' || coordinatedConfig.rsiPeriod < 2) {
+            return result.error(new Error("RSI period doit être un nombre >= 2"));
+          }
+          
+          // Validate confidence thresholds
+          if (typeof coordinatedConfig.trendConfidenceThreshold !== 'number' || coordinatedConfig.trendConfidenceThreshold < 0 || coordinatedConfig.trendConfidenceThreshold > 1) {
+            return result.error(new Error("Trend confidence threshold doit être un nombre entre 0 et 1"));
+          }
+          if (typeof coordinatedConfig.patternConfidenceThreshold !== 'number' || coordinatedConfig.patternConfidenceThreshold < 0 || coordinatedConfig.patternConfidenceThreshold > 1) {
+            return result.error(new Error("Pattern confidence threshold doit être un nombre entre 0 et 1"));
+          }
+          if (typeof coordinatedConfig.volumeConfidenceThreshold !== 'number' || coordinatedConfig.volumeConfidenceThreshold < 0 || coordinatedConfig.volumeConfidenceThreshold > 1) {
+            return result.error(new Error("Volume confidence threshold doit être un nombre entre 0 et 1"));
+          }
+          if (typeof coordinatedConfig.overallConfidenceThreshold !== 'number' || coordinatedConfig.overallConfidenceThreshold < 0 || coordinatedConfig.overallConfidenceThreshold > 1) {
+            return result.error(new Error("Overall confidence threshold doit être un nombre entre 0 et 1"));
           }
           break;
       }
@@ -396,6 +468,56 @@ export class StrategyFactory {
             rsiOversoldLevel: 30,
             momentumThreshold: 0.002, // 0.2%
             priceDeviationThreshold: 0.001, // 0.1%
+            maxSlippagePercent: 1.0,
+            minLiquidityRatio: 10.0,
+            riskPerTrade: 0.01,
+            accountSize: 10000,
+            maxCapitalPerTrade: 0.1,
+            limitOrderBuffer: 0.0005,
+            useLimitOrders: false
+          };
+          break;
+
+        case StrategyType.COORDINATED_MULTI_STRATEGY:
+          defaultConfig = {
+            symbol,
+            positionSize,
+            
+            // Elliott Wave settings
+            waveDetectionLength: 100,
+            priceSensitivity: 0.01,
+            
+            // Harmonic Pattern settings
+            detectionLength: 200,
+            fibRetracementTolerance: 0.02,
+            patternConfirmationPercentage: 80,
+            
+            // Volume Analysis settings
+            volumeThreshold: 1.5,
+            volumeMALength: 20,
+            priceMALength: 10,
+            volumeSpikeFactor: 2.0,
+            
+            // Scalping settings
+            fastEmaPeriod: 20,
+            slowEmaPeriod: 50,
+            rsiPeriod: 7,
+            momentumPeriod: 10,
+            maxHoldingPeriod: 15,
+            profitTargetPercent: 0.003,
+            stopLossPercent: 0.002,
+            rsiOverboughtLevel: 70,
+            rsiOversoldLevel: 30,
+            momentumThreshold: 0.002,
+            priceDeviationThreshold: 0.001,
+            
+            // Coordination settings
+            trendConfidenceThreshold: 0.6,
+            patternConfidenceThreshold: 0.5,
+            volumeConfidenceThreshold: 0.4,
+            overallConfidenceThreshold: 0.7,
+            
+            // Trading settings
             maxSlippagePercent: 1.0,
             minLiquidityRatio: 10.0,
             riskPerTrade: 0.01,

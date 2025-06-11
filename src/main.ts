@@ -239,7 +239,8 @@ class LukayaTradingApp implements LukayaApp {
       'volume-analysis': StrategyType.VOLUME_ANALYSIS,
       'elliott-wave': StrategyType.ELLIOTT_WAVE,
       'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
-      'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT
+      'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT,
+      'coordinated-multi-strategy': StrategyType.COORDINATED_MULTI_STRATEGY
     };
 
     const strategyType = typeMap[typeString];

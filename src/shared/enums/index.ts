@@ -34,6 +34,7 @@ export enum StrategyType {
   ELLIOTT_WAVE = 'elliott-wave',
   HARMONIC_PATTERN = 'harmonic-pattern',
   SCALPING_ENTRY_EXIT = 'scalping-entry-exit',
+  COORDINATED_MULTI_STRATEGY = 'coordinated-multi-strategy',
 }
 
 // Niveaux de log
