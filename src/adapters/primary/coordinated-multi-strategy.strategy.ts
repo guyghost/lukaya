@@ -287,18 +287,35 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
   /**
    * Step 3: Volume Confirmation Analysis
    * Validates the move with volume surge detection
+   * Can operate independently if Elliott Wave shows directional bias
    */
-  const analyzeVolumeConfirmation = (data: MarketData[], patternResult: StrategyStepResult): StrategyStepResult => {
+  const analyzeVolumeConfirmation = (data: MarketData[], patternResult: StrategyStepResult, elliottResult: StrategyStepResult): StrategyStepResult => {
     logger.debug(`📊 Volume Analysis: Starting analysis with ${data.length} data points`);
     logger.debug(`📊 Volume Analysis: Pattern input - confidence: ${patternResult.confidence.toFixed(3)}, signal: ${patternResult.signal || 'none'}`);
+    logger.debug(`📊 Volume Analysis: Elliott input - confidence: ${elliottResult.confidence.toFixed(3)}, signal: ${elliottResult.signal || 'none'}`);
     
-    if (data.length < config.volumeMALength * 2 || patternResult.confidence < config.patternConfidenceThreshold) {
-      if (data.length < config.volumeMALength * 2) {
-        logger.debug(`📊 Volume Analysis: Insufficient data (${data.length} < ${config.volumeMALength * 2})`);
-      }
-      if (patternResult.confidence < config.patternConfidenceThreshold) {
-        logger.debug(`📊 Volume Analysis: Pattern confidence too low (${patternResult.confidence.toFixed(3)} < ${config.patternConfidenceThreshold})`);
-      }
+    // Check if we have sufficient data
+    if (data.length < config.volumeMALength * 2) {
+      logger.debug(`📊 Volume Analysis: Insufficient data (${data.length} < ${config.volumeMALength * 2})`);
+      return { confidence: 0, strength: 0 };
+    }
+    
+    // Check if we can proceed with volume analysis
+    const hasPatternConfirmation = patternResult.confidence >= config.patternConfidenceThreshold;
+    const hasElliottBias = elliottResult.confidence >= 0.5 && elliottResult.signal; // Lower threshold for volume analysis
+    const canAnalyze = hasPatternConfirmation || hasElliottBias;
+    
+    if (!canAnalyze) {
+      logger.debug(`📊 Volume Analysis: Neither pattern confirmation (${patternResult.confidence.toFixed(3)} < ${config.patternConfidenceThreshold}) nor Elliott bias (${elliottResult.confidence.toFixed(3)} < 0.5) available`);
+      return { confidence: 0, strength: 0 };
+    }
+    
+    // Use the best available signal (prefer pattern, fallback to Elliott)
+    const referenceSignal = hasPatternConfirmation ? patternResult.signal : elliottResult.signal;
+    logger.debug(`📊 Volume Analysis: Using ${hasPatternConfirmation ? 'pattern' : 'Elliott'} signal: ${referenceSignal}`);
+    
+    if (!referenceSignal) {
+      logger.debug(`📊 Volume Analysis: No directional signal available`);
       return { confidence: 0, strength: 0 };
     }
     
@@ -342,17 +359,28 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     
     logger.debug(`📊 Volume Analysis: Price-volume alignment: ${priceVolumeAlignment.toFixed(4)}`);
     
-    // Check for volume confirmation of pattern direction
+    // Check for volume confirmation of reference signal direction
     let volumeConfirmation = 0;
-    if (volumeSurge && patternResult.signal) {
+    if (volumeSurge && referenceSignal) {
       const priceMovementDirection = priceChange > 0 ? 'long' : 'short';
       logger.debug(`📊 Volume Analysis: Direction alignment check:`);
       logger.debug(`   Price movement direction: ${priceMovementDirection}`);
-      logger.debug(`   Pattern signal direction: ${patternResult.signal}`);
+      logger.debug(`   Reference signal direction: ${referenceSignal}`);
       
-      if (priceMovementDirection === patternResult.signal) {
-        volumeConfirmation = Math.min(0.9, priceVolumeAlignment * 0.5 + volumeRatio * 0.3);
-        logger.debug(`📊 Volume Analysis: ✅ Directions aligned! Confirmation: ${volumeConfirmation.toFixed(3)}`);
+      if (priceMovementDirection === referenceSignal) {
+        // Calculate base confirmation from volume and price alignment
+        let baseConfirmation = Math.min(0.9, priceVolumeAlignment * 0.5 + volumeRatio * 0.3);
+        
+        // Apply confidence modifier based on signal source
+        if (hasPatternConfirmation) {
+          // Full confidence if pattern confirms
+          volumeConfirmation = baseConfirmation;
+          logger.debug(`📊 Volume Analysis: ✅ Pattern-based directions aligned! Confirmation: ${volumeConfirmation.toFixed(3)}`);
+        } else {
+          // Reduced but still meaningful confidence for Elliott-based analysis
+          volumeConfirmation = baseConfirmation * 0.7; // 70% of full confidence
+          logger.debug(`📊 Volume Analysis: ✅ Elliott-based directions aligned! Confirmation: ${volumeConfirmation.toFixed(3)} (reduced)`);
+        }
       } else {
         logger.debug(`📊 Volume Analysis: ❌ Direction mismatch - no confirmation`);
       }
@@ -360,8 +388,8 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       if (!volumeSurge) {
         logger.debug(`📊 Volume Analysis: No volume surge detected`);
       }
-      if (!patternResult.signal) {
-        logger.debug(`📊 Volume Analysis: No pattern signal to confirm`);
+      if (!referenceSignal) {
+        logger.debug(`📊 Volume Analysis: No reference signal to confirm`);
       }
     }
     
@@ -369,7 +397,7 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     
     return {
       confidence: volumeConfirmation,
-      signal: patternResult.signal,
+      signal: referenceSignal, // Use reference signal instead of just pattern signal
       strength: priceVolumeAlignment,
       metadata: {
         volumeRatio,
@@ -380,7 +408,8 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
         avgVolume,
         currentPrice,
         avgPrice,
-        spikeFactor: config.volumeSpikeFactor
+        spikeFactor: config.volumeSpikeFactor,
+        signalSource: hasPatternConfirmation ? 'pattern' : 'elliott' // Track signal source
       }
     };
   };
@@ -594,9 +623,9 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       logger.warn(`⚠️  Harmonic Pattern confidence ${harmonicResult.confidence.toFixed(3)} below threshold ${config.patternConfidenceThreshold}.`);
     }
     
-    // Step 3: Volume confirmation (depends on Harmonic Pattern)
+    // Step 3: Volume confirmation (can depend on either Harmonic Pattern or Elliott Wave)
     logger.info(`📊 Step 3/4: Analyzing Volume Confirmation...`);
-    const volumeResult = analyzeVolumeConfirmation(data, harmonicResult);
+    const volumeResult = analyzeVolumeConfirmation(data, harmonicResult, elliottResult);
     logger.info(`📊 Volume Analysis Result: signal=${volumeResult.signal || 'none'}, confidence=${volumeResult.confidence.toFixed(3)}, strength=${volumeResult.strength.toFixed(3)}`);
     
     if (volumeResult.metadata?.volumeSurge) {
