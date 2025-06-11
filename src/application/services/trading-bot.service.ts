@@ -638,7 +638,17 @@ export const createTradingBotService = (
           try {
             if (strategy.initializeWithHistory) {
               logger.info(`Fetching historical data for strategy: ${strategy.getName()}`);
-              const historicalData = await marketDataPort.getHistoricalMarketData(symbol, 100);
+              
+              // Calculate required historical data points based on strategy type
+              let historicalLimit = 100; // Default for most strategies
+              
+              // For coordinated multi-strategy, we need more data
+              if (strategy.getName().includes('Coordinated Multi-Strategy')) {
+                historicalLimit = 250; // Extra buffer for coordinated strategy analysis
+                logger.debug(`Using extended historical data limit (${historicalLimit}) for coordinated multi-strategy`);
+              }
+              
+              const historicalData = await marketDataPort.getHistoricalMarketData(symbol, historicalLimit);
               
               if (historicalData && historicalData.length > 0) {
                 logger.info(`Initializing strategy ${strategy.getName()} with ${historicalData.length} historical data points`);

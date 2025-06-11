@@ -902,6 +902,115 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
           : undefined,
         timeInForce: TimeInForce.IMMEDIATE_OR_CANCEL
       };
+    },
+
+    initializeWithHistory: async (historicalData: MarketData[]): Promise<void> => {
+      if (!historicalData || historicalData.length === 0) {
+        logger.info(`🔄 No historical data provided for Coordinated Multi-Strategy on ${config.symbol}`);
+        return;
+      }
+
+      logger.info(`🚀 Initializing Coordinated Multi-Strategy with ${historicalData.length} historical data points for ${config.symbol}`);
+
+      // Reset state
+      marketDataHistory = [];
+      currentPosition = 'none';
+      entryTime = null;
+      entryPrice = null;
+
+      // Calculate the required data points for analysis
+      const maxHistoryLength = Math.max(
+        config.waveDetectionLength,
+        config.detectionLength,
+        config.volumeMALength * 2,
+        config.slowEmaPeriod
+      ) + 10;
+
+      logger.debug(`📊 Required data points: ${maxHistoryLength}, Available: ${historicalData.length}`);
+
+      // Process historical data for the correct symbol only
+      let processedCount = 0;
+      let symbolMismatchCount = 0;
+      let priceInvalidCount = 0;
+      let volumeInvalidCount = 0;
+      
+      // Log first few entries for debugging
+      logger.debug(`🔍 First 3 historical data entries for debugging:`);
+      for (let i = 0; i < Math.min(3, historicalData.length); i++) {
+        const data = historicalData[i];
+        logger.debug(`   Entry ${i + 1}: symbol="${data.symbol}", price=${data.price}, volume=${data.volume}, timestamp=${data.timestamp}`);
+      }
+      
+      logger.debug(`🔍 Looking for symbol: "${config.symbol}" (length: ${config.symbol.length})`);
+      
+      for (const data of historicalData) {
+        // Debug symbol matching
+        const symbolMatches = data.symbol === config.symbol;
+        const priceValid = data.price && data.price > 0;
+        const volumeValid = data.volume && data.volume >= 0;
+        
+        if (!symbolMatches) {
+          symbolMismatchCount++;
+          if (symbolMismatchCount <= 3) { // Log first few mismatches
+            logger.debug(`   Symbol mismatch: got "${data.symbol}" (length: ${data.symbol?.length}), expected "${config.symbol}"`);
+          }
+        }
+        if (!priceValid) {
+          priceInvalidCount++;
+          if (priceInvalidCount <= 3) {
+            logger.debug(`   Invalid price: ${data.price}`);
+          }
+        }
+        if (!volumeValid) {
+          volumeInvalidCount++;
+          if (volumeInvalidCount <= 3) {
+            logger.debug(`   Invalid volume: ${data.volume}`);
+          }
+        }
+        
+        if (symbolMatches && priceValid && volumeValid) {
+          marketDataHistory.push(data);
+          processedCount++;
+        }
+      }
+      
+      logger.debug(`🔍 Filtering results:`);
+      logger.debug(`   Symbol mismatches: ${symbolMismatchCount}/${historicalData.length}`);
+      logger.debug(`   Price invalid: ${priceInvalidCount}/${historicalData.length}`);
+      logger.debug(`   Volume invalid: ${volumeInvalidCount}/${historicalData.length}`);
+      logger.debug(`   Successfully processed: ${processedCount}/${historicalData.length}`);
+
+      // Keep only the most recent data up to maxHistoryLength
+      if (marketDataHistory.length > maxHistoryLength) {
+        marketDataHistory = marketDataHistory.slice(-maxHistoryLength);
+        logger.debug(`🗂️  Trimmed historical data to keep most recent ${maxHistoryLength} points`);
+      }
+
+      const requiredDataPoints = maxHistoryLength * 0.8;
+      const hasEnoughData = marketDataHistory.length >= requiredDataPoints;
+
+      logger.info(`✅ Coordinated Multi-Strategy initialized for ${config.symbol}:`, {
+        symbol: config.symbol,
+        totalHistoricalPoints: historicalData.length,
+        processedPoints: processedCount,
+        finalHistoryLength: marketDataHistory.length,
+        requiredForAnalysis: requiredDataPoints,
+        readyForAnalysis: hasEnoughData,
+        dataStatus: hasEnoughData ? 'READY' : 'WAITING_FOR_MORE_DATA'
+      });
+
+      // If we have enough data, perform an initial analysis to test the system
+      if (hasEnoughData) {
+        try {
+          logger.info(`🔬 Performing initial analysis with preloaded data...`);
+          const analysis = coordinateStrategies(marketDataHistory);
+          logger.info(`🎯 Initial analysis complete - Overall confidence: ${analysis.overallConfidence.toFixed(3)}, Action: ${analysis.recommendedAction}`);
+        } catch (error) {
+          logger.warn(`⚠️  Initial analysis failed with preloaded data:`, error as Error);
+        }
+      } else {
+        logger.warn(`📈 Need ${Math.ceil(requiredDataPoints - marketDataHistory.length)} more data points before analysis can begin`);
+      }
     }
   };
   

@@ -596,21 +596,98 @@ export const createDydxClient = (config: DydxClientConfig): {
         const client = await getClient();
         const { indexerClient } = client;
 
+        logger.debug(`Fetching historical data for ${symbol} with limit ${limit}`);
+        
         // Fetch historical candles (e.g., 1MIN interval)
         const candlesResponse = await indexerClient.markets.getPerpetualMarketCandles(symbol, '1MIN');
         if (!candlesResponse?.candles || !Array.isArray(candlesResponse.candles)) {
           throw new Error(`No historical candle data found for ${symbol}`);
         }
 
-        // Map candles to MarketData[]
-        return candlesResponse.candles.map((candle: any) => ({
-          symbol,
-          price: parseFloat(candle.close),
-          timestamp: new Date(candle.start).getTime(),
-          volume: parseFloat(candle.volume),
-          bid: parseFloat(candle.close), // No bid/ask in candle, use close as proxy
-          ask: parseFloat(candle.close),
-        }));
+        logger.debug(`Received ${candlesResponse.candles.length} candles for ${symbol}`);
+        
+        // Log first candle for debugging
+        if (candlesResponse.candles.length > 0) {
+          const firstCandle = candlesResponse.candles[0];
+          logger.debug(`Sample candle structure:`, {
+            keys: Object.keys(firstCandle),
+            candle: firstCandle
+          });
+        }
+
+        // Map candles to MarketData[], taking the most recent ones up to the limit
+        const mappedData = candlesResponse.candles
+          .slice(-limit) // Take the most recent 'limit' candles
+          .map((candle: any, index: number) => {
+            // Parse volume with proper fallback and validation
+            // dYdX provides both baseTokenVolume and usdVolume, use usdVolume as it's more meaningful
+            let volume = 0;
+            let volumeSource = "none";
+            
+            if (candle.usdVolume !== undefined && candle.usdVolume !== null) {
+              const parsedVolume = parseFloat(candle.usdVolume.toString());
+              volume = isNaN(parsedVolume) ? 0 : Math.max(0, parsedVolume);
+              volumeSource = `usdVolume(${candle.usdVolume})`;
+            } else if (candle.baseTokenVolume !== undefined && candle.baseTokenVolume !== null) {
+              // Fallback to baseTokenVolume if usdVolume not available
+              const parsedVolume = parseFloat(candle.baseTokenVolume.toString());
+              volume = isNaN(parsedVolume) ? 0 : Math.max(0, parsedVolume);
+              volumeSource = `baseTokenVolume(${candle.baseTokenVolume})`;
+            }
+            
+            // Debug volume parsing for first few candles
+            if (index < 3) {
+              logger.debug(`Volume parsing for ${symbol} candle ${index}:`, {
+                usdVolume: candle.usdVolume,
+                baseTokenVolume: candle.baseTokenVolume,
+                finalVolume: volume,
+                volumeSource
+              });
+            }
+            
+            // Parse price with validation
+            const price = parseFloat(candle.close);
+            if (isNaN(price) || price <= 0) {
+              logger.warn(`Invalid price in candle for ${symbol}:`, { candle });
+              return null;
+            }
+            
+            // Parse timestamp with validation  
+            let timestamp = Date.now();
+            if (candle.startedAt) {
+              const parsedTimestamp = new Date(candle.startedAt).getTime();
+              if (!isNaN(parsedTimestamp)) {
+                timestamp = parsedTimestamp;
+              }
+            }
+
+            return {
+              symbol,
+              price,
+              timestamp,
+              volume,
+              bid: price, // No bid/ask in candle, use close as proxy
+              ask: price,
+            };
+          })
+          .filter((data: MarketData | null): data is MarketData => data !== null); // Remove any null entries
+
+        logger.debug(`Mapped ${mappedData.length} valid data points for ${symbol}`);
+        
+        // Log sample of mapped data for debugging
+        if (mappedData.length > 0) {
+          logger.debug(`Sample mapped data:`, {
+            first: mappedData[0],
+            last: mappedData[mappedData.length - 1],
+            volumeStats: {
+              min: Math.min(...mappedData.map((d: MarketData) => d.volume)),
+              max: Math.max(...mappedData.map((d: MarketData) => d.volume)),
+              avg: mappedData.reduce((sum: number, d: MarketData) => sum + d.volume, 0) / mappedData.length
+            }
+          });
+        }
+        
+        return mappedData;
       } catch (error) {
         logger.error(`Failed to fetch historical market data for ${symbol}:`, error as Error);
         return [];
