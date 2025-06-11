@@ -68,12 +68,12 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
 
   // ID et nom de la stratégie
   const id = `scalping-entry-exit-${config.symbol}`;
-  const name = `Scalping Entry/Exit (${config.fastEmaPeriod}/${config.slowEmaPeriod})`;
+  const name = `Scalping EMA 20/50 + RSI 7 (${config.symbol})`;
 
-  // Paramètres par défaut
-  const maxSlippagePercent = config.maxSlippagePercent || 0.5; // Plus strict pour le scalping
-  const minLiquidityRatio = config.minLiquidityRatio || 15.0; // Plus strict pour le scalping
-  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true; // Par défaut TRUE pour le scalping
+  // Paramètres par défaut optimisés pour scalping ultra-rapide
+  const maxSlippagePercent = config.maxSlippagePercent || 0.2; // Slippage très strict pour scalping
+  const minLiquidityRatio = config.minLiquidityRatio || 8.0; // Liquidité élevée requise
+  const useLimitOrders = config.useLimitOrders !== undefined ? config.useLimitOrders : true; // Ordres limite par défaut
 
   // Calculer le momentum des prix
   const calculateMomentum = (prices: number[], period: number): number => {
@@ -98,45 +98,49 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
     return Math.abs(emaDifference);
   };
 
-  // Détecter les signaux de scalping
+  // Détecter les signaux de scalping selon la stratégie EMA 20/50 + RSI 7
   const detectScalpingSignal = (data: MarketData): StrategySignal | null => {
     const currentCandle = state.priceHistory.length;
     
     // Vérifier qu'on a assez de données
     if (state.fastEmaHistory.length === 0 || state.slowEmaHistory.length === 0 || 
-        state.rsiHistory.length === 0 || state.momentumHistory.length === 0) {
+        state.rsiHistory.length === 0) {
       return null;
     }
 
     const currentPrice = data.price;
-    const fastEma = state.fastEmaHistory[state.fastEmaHistory.length - 1];
-    const slowEma = state.slowEmaHistory[state.slowEmaHistory.length - 1];
+    const fastEma = state.fastEmaHistory[state.fastEmaHistory.length - 1]; // EMA 20
+    const slowEma = state.slowEmaHistory[state.slowEmaHistory.length - 1]; // EMA 50
     const previousFastEma = state.fastEmaHistory.length > 1 ? state.fastEmaHistory[state.fastEmaHistory.length - 2] : fastEma;
     const previousSlowEma = state.slowEmaHistory.length > 1 ? state.slowEmaHistory[state.slowEmaHistory.length - 2] : slowEma;
     const currentRsi = state.rsiHistory[state.rsiHistory.length - 1];
-    const currentMomentum = state.momentumHistory[state.momentumHistory.length - 1];
+    const previousRsi = state.rsiHistory.length > 1 ? state.rsiHistory[state.rsiHistory.length - 2] : currentRsi;
 
     // Calculer la force de la tendance
     state.trendStrength = calculateTrendStrength(state.fastEmaHistory, state.slowEmaHistory);
 
     // Cooldown pour éviter trop de signaux consécutifs
-    const signalCooldown = 3; // candles
+    const signalCooldown = 2; // candles (réduit pour scalping)
     const canGenerateSignal = currentCandle - state.lastSignalCandle > signalCooldown;
 
     if (!canGenerateSignal) {
       return null;
     }
 
-    // Signaux d'entrée
+    // Signaux d'entrée selon la stratégie décrite
     if (state.position === "none") {
-      // Signal d'entrée LONG: EMA rapide croise au-dessus de l'EMA lente + RSI pas en surachat + momentum positif
-      if (fastEma > slowEma && 
-          previousFastEma <= previousSlowEma && // Croisement récent
-          currentRsi < config.rsiOverboughtLevel &&
-          currentMomentum > config.momentumThreshold &&
-          state.trendStrength > 0.05) { // Au moins 0.05% de différence entre les EMAs
+      // SIGNAL LONG: 
+      // 1. Prix au-dessus des deux EMAs (20 et 50)
+      // 2. RSI (7) a été sous 30 (survente) et commence à remonter
+      // 3. Attendre une bougie verte qui clôture au-dessus des EMAs
+      if (currentPrice > fastEma && 
+          currentPrice > slowEma && 
+          fastEma > slowEma && // Tendance haussière confirmée
+          previousRsi <= config.rsiOversoldLevel && 
+          currentRsi > previousRsi && // RSI remonte après survente
+          currentRsi < config.rsiOverboughtLevel) {
         
-        logger.info(`Signal d'entrée LONG détecté sur ${data.symbol} - EMA croisement haussier`);
+        logger.info(`Signal d'entrée LONG détecté sur ${data.symbol} - EMA 20/50 + RSI survente/remontée`);
         state.position = "long";
         state.lastEntryPrice = currentPrice;
         state.entryCandle = currentCandle;
@@ -146,18 +150,22 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
           type: "entry",
           direction: "long",
           price: currentPrice,
-          reason: `Scalping LONG: EMA croisement haussier (RSI: ${currentRsi.toFixed(1)}, Momentum: ${currentMomentum.toFixed(2)}%)`,
+          reason: `Scalping LONG: Prix>${fastEma.toFixed(2)}>${slowEma.toFixed(2)}, RSI ${previousRsi.toFixed(1)}->${currentRsi.toFixed(1)}`,
         };
       }
       
-      // Signal d'entrée SHORT: EMA rapide croise en-dessous de l'EMA lente + RSI pas en survente + momentum négatif
-      else if (fastEma < slowEma && 
-               previousFastEma >= previousSlowEma && // Croisement récent
-               currentRsi > config.rsiOversoldLevel &&
-               currentMomentum < -config.momentumThreshold &&
-               state.trendStrength > 0.05) {
+      // SIGNAL SHORT:
+      // 1. Prix en-dessous des deux EMAs (20 et 50) 
+      // 2. RSI (7) a été au-dessus de 70 (surachat) et commence à baisser
+      // 3. Attendre une bougie rouge qui clôture en-dessous des EMAs
+      else if (currentPrice < fastEma && 
+               currentPrice < slowEma && 
+               fastEma < slowEma && // Tendance baissière confirmée
+               previousRsi >= config.rsiOverboughtLevel && 
+               currentRsi < previousRsi && // RSI baisse après surachat
+               currentRsi > config.rsiOversoldLevel) {
         
-        logger.info(`Signal d'entrée SHORT détecté sur ${data.symbol} - EMA croisement baissier`);
+        logger.info(`Signal d'entrée SHORT détecté sur ${data.symbol} - EMA 20/50 + RSI surachat/baisse`);
         state.position = "short";
         state.lastEntryPrice = currentPrice;
         state.entryCandle = currentCandle;
@@ -167,28 +175,28 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
           type: "entry",
           direction: "short",
           price: currentPrice,
-          reason: `Scalping SHORT: EMA croisement baissier (RSI: ${currentRsi.toFixed(1)}, Momentum: ${currentMomentum.toFixed(2)}%)`,
+          reason: `Scalping SHORT: Prix<${fastEma.toFixed(2)}<${slowEma.toFixed(2)}, RSI ${previousRsi.toFixed(1)}->${currentRsi.toFixed(1)}`,
         };
       }
     }
     
-    // Signaux de sortie
+    // Signaux de sortie optimisés pour scalping rapide
     else if (state.position === "long" && state.lastEntryPrice && state.entryCandle) {
       const profitPercent = ((currentPrice - state.lastEntryPrice) / state.lastEntryPrice) * 100;
       const holdingPeriod = currentCandle - state.entryCandle;
       
-      // Sortie LONG: profit target atteint OU stop loss OU RSI surachat OU holding period dépassé OU retournement de tendance
+      // Sortie LONG: profit target atteint OU stop loss OU RSI surachat OU holding period dépassé OU prix sous EMA 20
       if (profitPercent >= config.profitTargetPercent ||
           profitPercent <= -config.stopLossPercent ||
           currentRsi >= config.rsiOverboughtLevel ||
           holdingPeriod >= config.maxHoldingPeriod ||
-          (fastEma < slowEma && currentMomentum < 0)) {
+          currentPrice < fastEma) { // Prix retombe sous EMA 20
         
         const reason = profitPercent >= config.profitTargetPercent ? "Profit target atteint" :
                       profitPercent <= -config.stopLossPercent ? "Stop loss déclenché" :
                       currentRsi >= config.rsiOverboughtLevel ? "RSI surachat" :
                       holdingPeriod >= config.maxHoldingPeriod ? "Période de détention max atteinte" :
-                      "Retournement de tendance détecté";
+                      "Prix sous EMA 20";
         
         logger.info(`Signal de sortie LONG détecté sur ${data.symbol} - ${reason}`);
         state.position = "none";
@@ -209,18 +217,18 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
       const profitPercent = ((state.lastEntryPrice - currentPrice) / state.lastEntryPrice) * 100;
       const holdingPeriod = currentCandle - state.entryCandle;
       
-      // Sortie SHORT: profit target atteint OU stop loss OU RSI survente OU holding period dépassé OU retournement de tendance
+      // Sortie SHORT: profit target atteint OU stop loss OU RSI survente OU holding period dépassé OU prix au-dessus EMA 20
       if (profitPercent >= config.profitTargetPercent ||
           profitPercent <= -config.stopLossPercent ||
           currentRsi <= config.rsiOversoldLevel ||
           holdingPeriod >= config.maxHoldingPeriod ||
-          (fastEma > slowEma && currentMomentum > 0)) {
+          currentPrice > fastEma) { // Prix remonte au-dessus EMA 20
         
         const reason = profitPercent >= config.profitTargetPercent ? "Profit target atteint" :
                       profitPercent <= -config.stopLossPercent ? "Stop loss déclenché" :
                       currentRsi <= config.rsiOversoldLevel ? "RSI survente" :
                       holdingPeriod >= config.maxHoldingPeriod ? "Période de détention max atteinte" :
-                      "Retournement de tendance détecté";
+                      "Prix au-dessus EMA 20";
         
         logger.info(`Signal de sortie SHORT détecté sur ${data.symbol} - ${reason}`);
         state.position = "none";
@@ -246,7 +254,7 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
     getConfig: () => ({
       id,
       name,
-      description: "Stratégie de scalping basée sur les croisements d'EMAs, RSI et momentum pour des trades courts et rapides",
+      description: "Stratégie de scalping EMA 20/50 + RSI 7 - entrées sur retournements RSI après survente/surachat avec confirmation EMAs - optimisée pour ETH-USD sur timeframes 5min",
       parameters: config as unknown as Record<string, unknown>,
     }),
 
@@ -394,8 +402,8 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
       // Arrondir la taille à 4 décimales
       adjustedSize = Math.floor(adjustedSize * 10000) / 10000;
 
-      // Calculer le prix limite pour les ordres limites (plus agressif pour le scalping)
-      const slippageBuffer = config.limitOrderBuffer || 0.0003; // Plus serré pour le scalping
+      // Calculer le prix limite pour les ordres limites (agressif pour scalping)
+      const slippageBuffer = config.limitOrderBuffer || 0.0002; // Buffer minimal pour exécution rapide
       const limitPrice =
         orderSide === OrderSide.BUY
           ? Math.round(marketData.ask * (1 + slippageBuffer) * 100) / 100

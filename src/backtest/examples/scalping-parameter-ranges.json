@@ -1,0 +1,7 @@
+{
+  "fastEmaPeriod": [15, 20, 25],
+  "slowEmaPeriod": [45, 50, 55],
+  "rsiPeriod": [5, 7, 9],
+  "profitTargetPercent": [0.2, 0.3, 0.4, 0.5],
+  "stopLossPercent": [0.15, 0.2, 0.25]
+}

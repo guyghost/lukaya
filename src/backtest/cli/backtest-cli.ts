@@ -1,7 +1,7 @@
 import { BacktestUiAdapter } from '../../adapters/primary/backtest-ui.adapter';
 import { BacktestConfig } from '../models/backtest.model';
 import { createContextualLogger } from '../../infrastructure/logging/enhanced-logger';
-import { createStrategyService } from '../../domain/services/strategy.service';
+import { createStrategyService, StrategyService } from '../../domain/services/strategy.service';
 import { errorHandler } from '../../shared/errors';
 import { Result } from '../../shared/types';
 import { result } from '../../shared/utils';
@@ -315,9 +315,91 @@ export class BacktestCli {
   }
 }
 
+// Function to create and register strategies from environment variables
+async function initializeStrategiesFromEnv(strategyService: StrategyService): Promise<void> {
+  const { loadConfig } = await import('../../infrastructure/config/enhanced-config');
+  const { StrategyFactory } = await import('../../adapters/strategies/strategy-factory');
+  const { StrategyType } = await import('../../shared/enums');
+  
+  try {
+    // Load configuration from environment variables
+    const config = loadConfig();
+    
+    // Create strategy factory
+    const strategyFactory = new StrategyFactory();
+    
+    // Helper function to convert strategy type string to enum
+    const getStrategyType = (typeString: string): StrategyType | null => {
+      const typeMap: Record<string, StrategyType> = {
+        'rsi-div': StrategyType.RSI_DIVERGENCE,
+        'rsi-divergence': StrategyType.RSI_DIVERGENCE,
+        'volume-analysis': StrategyType.VOLUME_ANALYSIS,
+        'elliott-wave': StrategyType.ELLIOTT_WAVE,
+        'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
+        'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT,
+      };
+      return typeMap[typeString] || null;
+    };
+    
+    // Create strategies from configuration
+    let addedStrategies = 0;
+    
+    for (const strategyConfig of config.strategies) {
+      if (!strategyConfig.enabled) {
+        continue;
+      }
+      
+      try {
+        // Convert the type string to enum StrategyType
+        const strategyType = getStrategyType(strategyConfig.type);
+        if (!strategyType) {
+          console.warn(`Type de stratégie non reconnu: ${strategyConfig.type}`);
+          continue;
+        }
+        
+        // Check if parameters are present
+        if (!strategyConfig.parameters) {
+          console.warn(`Paramètres manquants pour la stratégie: ${strategyConfig.type}`);
+          continue;
+        }
+        
+        // Create the strategy with the enum type
+        const strategy = await strategyFactory.createStrategy(
+          strategyType,
+          strategyConfig.parameters as any
+        );
+        
+        strategyService.registerStrategy(strategy);
+        addedStrategies++;
+        
+        console.log(`✅ Stratégie chargée: ${strategy.getName()}`);
+        
+      } catch (error) {
+        console.error(`❌ Erreur lors de l'initialisation de la stratégie: ${strategyConfig.type}`, error);
+      }
+    }
+    
+    if (addedStrategies > 0) {
+      console.log(`📈 ${addedStrategies} stratégies chargées depuis les variables d'environnement\n`);
+    } else {
+      console.log(`⚠️  Aucune stratégie chargée. Vérifiez vos variables d'environnement ACTIVE_STRATEGIES\n`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Erreur lors du chargement des stratégies:', error);
+  }
+}
+
 // Point d'entrée pour l'exécution en ligne de commande
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const strategyService = createStrategyService();
-  const cli = new BacktestCli(strategyService);
-  cli.execute(process.argv.slice(2));
+  
+  // Initialize strategies from environment variables
+  initializeStrategiesFromEnv(strategyService).then(() => {
+    const cli = new BacktestCli(strategyService);
+    cli.execute(process.argv.slice(2));
+  }).catch((error) => {
+    console.error('❌ Erreur lors de l\'initialisation:', error);
+    process.exit(1);
+  });
 }

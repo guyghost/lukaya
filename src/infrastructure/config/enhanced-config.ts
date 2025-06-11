@@ -160,6 +160,17 @@ export const loadConfig = (): ConfigType => {
     .map(s => s.trim())
     .filter(s => s.length > 0);
 
+  // Parse ACTIVE_STRATEGIES environment variable to determine which strategies to enable
+  const activeStrategies = (process.env.ACTIVE_STRATEGIES || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+  
+  // Helper function to check if a strategy is active
+  const isStrategyActive = (strategyType: string) => {
+    return activeStrategies.length === 0 || activeStrategies.includes(strategyType);
+  };
+
   const rawConfig = {
     network: process.env.DYDX_NETWORK || "testnet",
     dydx: {
@@ -185,7 +196,7 @@ export const loadConfig = (): ConfigType => {
     strategies: symbols.map(symbol => [
       {
         type: "rsi-div" as const,
-        enabled: process.env.RSI_DIVERGENCE_ENABLED !== 'false',
+        enabled: isStrategyActive("rsi-divergence"),
         weight: Number(process.env.RSI_DIVERGENCE_WEIGHT || 0.25),
         parameters: {
           rsiPeriod: Number(process.env.RSI_PERIOD || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].rsiPeriod),
@@ -198,7 +209,7 @@ export const loadConfig = (): ConfigType => {
       },
       {
         type: "volume-analysis" as const,
-        enabled: process.env.VOLUME_ANALYSIS_ENABLED !== 'false',
+        enabled: isStrategyActive("volume-analysis"),
         weight: Number(process.env.VOLUME_ANALYSIS_WEIGHT || 0.25),
         parameters: {
           volumeMALength: Number(process.env.VOLUME_MA_PERIOD || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeMALength),
@@ -212,7 +223,7 @@ export const loadConfig = (): ConfigType => {
       },
       {
         type: "elliott-wave" as const,
-        enabled: process.env.ELLIOTT_WAVE_ENABLED !== 'false',
+        enabled: isStrategyActive("elliott-wave"),
         weight: Number(process.env.ELLIOTT_WAVE_WEIGHT || 0.25),
         parameters: {
           waveDetectionLength: Number(process.env.ELLIOTT_MIN_WAVE_LENGTH || DEFAULT_STRATEGY_CONFIGS["elliott-wave"].waveDetectionLength),
@@ -224,7 +235,7 @@ export const loadConfig = (): ConfigType => {
       },
       {
         type: "harmonic-pattern" as const,
-        enabled: process.env.HARMONIC_PATTERN_ENABLED !== 'false',
+        enabled: isStrategyActive("harmonic-pattern"),
         weight: Number(process.env.HARMONIC_PATTERN_WEIGHT || 0.25),
         parameters: {
           detectionLength: Number(process.env.PATTERN_DETECTION_LENGTH || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].detectionLength),
@@ -236,22 +247,29 @@ export const loadConfig = (): ConfigType => {
       },
       {
         type: "scalping-entry-exit" as const,
-        enabled: process.env.SCALPING_ENABLED !== 'false',
+        enabled: isStrategyActive("scalping-entry-exit"),
         weight: Number(process.env.SCALPING_WEIGHT || 0.25),
         parameters: {
-          fastEmaPeriod: Number(process.env.SCALPING_FAST_EMA_PERIOD || 9),
-          slowEmaPeriod: Number(process.env.SCALPING_SLOW_EMA_PERIOD || 21),
-          rsiPeriod: Number(process.env.SCALPING_RSI_PERIOD || 14),
-          momentumPeriod: Number(process.env.SCALPING_MOMENTUM_PERIOD || 10),
-          maxHoldingPeriod: Number(process.env.SCALPING_MAX_HOLDING_PERIOD || 30),
-          profitTargetPercent: Number(process.env.SCALPING_PROFIT_TARGET || 0.005),
-          stopLossPercent: Number(process.env.SCALPING_STOP_LOSS || 0.003),
-          rsiOverboughtLevel: Number(process.env.SCALPING_RSI_OVERBOUGHT || 70),
-          rsiOversoldLevel: Number(process.env.SCALPING_RSI_OVERSOLD || 30),
-          momentumThreshold: Number(process.env.SCALPING_MOMENTUM_THRESHOLD || 0.002),
-          priceDeviationThreshold: Number(process.env.SCALPING_PRICE_DEVIATION || 0.001),
+          fastEmaPeriod: Number(process.env.SCALPING_FAST_EMA_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].fastEmaPeriod),
+          slowEmaPeriod: Number(process.env.SCALPING_SLOW_EMA_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].slowEmaPeriod),
+          rsiPeriod: Number(process.env.SCALPING_RSI_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiPeriod),
+          momentumPeriod: Number(process.env.SCALPING_MOMENTUM_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].momentumPeriod),
+          maxHoldingPeriod: Number(process.env.SCALPING_MAX_HOLDING_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].maxHoldingPeriod),
+          profitTargetPercent: Number(process.env.SCALPING_PROFIT_TARGET_PERCENT || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].profitTargetPercent),
+          stopLossPercent: Number(process.env.SCALPING_STOP_LOSS_PERCENT || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].stopLossPercent),
+          rsiOverboughtLevel: Number(process.env.SCALPING_RSI_OVERBOUGHT_LEVEL || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiOverboughtLevel),
+          rsiOversoldLevel: Number(process.env.SCALPING_RSI_OVERSOLD_LEVEL || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiOversoldLevel),
+          momentumThreshold: Number(process.env.SCALPING_MOMENTUM_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].momentumThreshold),
+          priceDeviationThreshold: Number(process.env.SCALPING_PRICE_DEVIATION_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].priceDeviationThreshold),
           symbol: symbol.trim(),
-          positionSize: Number(process.env.SCALPING_POSITION_SIZE || 0.1),
+          positionSize: Number(process.env.SCALPING_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].positionSize),
+          accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
+          riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
+          maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),
+          minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || DEFAULT_TRADING_CONFIG.minLiquidityRatio),
+          maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
+          limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || DEFAULT_TRADING_CONFIG.limitOrderBuffer),
+          useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true' ? true : DEFAULT_TRADING_CONFIG.useLimitOrders,
         },
       },
     ]).flat(),

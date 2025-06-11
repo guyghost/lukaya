@@ -9,6 +9,7 @@ export interface StrategyService {
   registerStrategy: (strategy: Strategy) => void;
   unregisterStrategy: (strategyId: string) => void;
   getStrategy: (strategyId: string) => Strategy | undefined;
+  getStrategyById: (strategyId: string) => Strategy | undefined; // Added for backtest compatibility
   getAllStrategies: () => Strategy[];
   processMarketData: (data: MarketData) => Promise<Map<string, StrategySignal | null>>;
   generateOrder: (strategyId: string, signal: StrategySignal, marketData: MarketData) => OrderParams | null;
@@ -30,6 +31,10 @@ export const createStrategyService = (): StrategyService => {
     },
     
     getStrategy: (strategyId: string): Strategy | undefined => {
+      return state.strategies.get(strategyId);
+    },
+    
+    getStrategyById: (strategyId: string): Strategy | undefined => {
       return state.strategies.get(strategyId);
     },
     
