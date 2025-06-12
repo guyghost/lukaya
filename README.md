@@ -1,6 +1,31 @@
 # Lukaya Trading Bot
 
-Lukaya est un bot de trading automatisé conçu pour fonctionner avec le protocole dYdX v4.
+Lukaya est un bot de trading automatisé avancé conçu pour le protocole dYdX v4, utilisant une architecture d'acteurs moderne et des stratégies d'analyse technique sophistiquées.
+
+## 🚀 Démarrage Rapide
+
+```bash
+# 1. Installation
+bun install
+
+# 2. Configuration
+cp .env.example .env
+# Éditez .env avec vos paramètres dYdX
+
+# 3. Test (recommandé)
+bun dev
+
+# 4. Production
+bun start
+```
+
+**⚡ Configuration Express** :
+```env
+DYDX_MNEMONIC="votre-phrase-mnémonique"
+DYDX_NETWORK="testnet"  # puis "mainnet"
+ACTIVE_STRATEGIES="coordinated-multi-strategy"
+COORDINATED_OVERALL_CONFIDENCE_THRESHOLD=0.45
+```
 
 ## Installation
 
@@ -17,7 +42,7 @@ Le bot se configure via des variables d'environnement (fichier `.env`):
 
 ### Configuration de base
 
-```
+```env
 DYDX_MNEMONIC="votre phrase mnémonique"
 DYDX_NETWORK="mainnet" # ou "testnet"
 DYDX_SUBACCOUNT_NUMBER=0
@@ -27,22 +52,67 @@ DYDX_SUBACCOUNT_NUMBER=0
 
 Vous pouvez configurer plusieurs symboles de trading en les séparant par une virgule:
 
-```
-DEFAULT_SYMBOLS="BTC-USD,ETH-USD,SOL-USD,LTC-USD"
+```env
+DEFAULT_SYMBOLS="BTC-USD,ETH-USD,SOL-USD,LTC-USD,XRP-USD,RUNE-USD"
 ```
 
 Le bot appliquera automatiquement les stratégies configurées à tous les symboles spécifiés.
 
+### Configuration globale des paramètres de trading :
+
+```env
+
 ### Configuration des stratégies
 
-Le bot utilise maintenant quatre stratégies avancées de détection des signaux faibles :
+Le bot propose plusieurs stratégies de trading avancées :
 
+#### Stratégies Individuelles :
 1. **RSI Divergence** : Détecte les divergences entre prix et RSI pour anticiper les retournements
 2. **Volume Analysis** : Analyse les patterns de volume pour identifier les accumulations/distributions  
 3. **Elliott Wave** : Identifie les structures de vagues pour prédire les mouvements
 4. **Harmonic Pattern** : Reconnaît les patterns harmoniques basés sur Fibonacci
+5. **Scalping Entry/Exit** : Stratégie de scalping rapide basée sur EMA et RSI
 
-Configuration globale des paramètres de trading :
+#### Stratégie Coordonnée (Recommandée) :
+6. **Coordinated Multi-Strategy** : Combine intelligemment Elliott Wave → Harmonic Pattern → Volume Analysis → Scalping pour des signaux de haute qualité avec gestion de confiance et confluence
+
+```
+ACTIVE_STRATEGIES="coordinated-multi-strategy"
+```
+
+## Stratégies Disponibles
+
+### 🎯 Stratégie Coordonnée (Recommandée)
+
+La **Coordinated Multi-Strategy** est la stratégie la plus avancée du bot. Elle combine quatre approches d'analyse technique dans un pipeline séquentiel intelligent :
+
+1. **Elliott Wave Analysis** → Identifie les structures de vagues et la direction du marché
+2. **Harmonic Pattern Detection** → Recherche les patterns de retournement aux niveaux Fibonacci
+3. **Volume Analysis** → Confirme les signaux avec l'analyse du volume
+4. **Scalping Entry/Exit** → Optimise les points d'entrée et de sortie
+
+**Avantages** :
+- Signaux de haute qualité grâce à la confluence
+- Gestion de la confiance multi-niveaux
+- Adaptation aux différentes conditions de marché
+- Réduction des faux signaux
+
+**Configuration** :
+```
+ACTIVE_STRATEGIES="coordinated-multi-strategy"
+COORDINATED_OVERALL_CONFIDENCE_THRESHOLD=0.45
+COORDINATED_POSITION_SIZE=0.01
+```
+
+### 📊 Stratégies Individuelles
+
+Les stratégies peuvent aussi être utilisées individuellement :
+
+- **rsi-divergence** : Divergences RSI/prix
+- **volume-analysis** : Analyse des spikes de volume  
+- **elliott-wave** : Détection des structures de vagues
+- **harmonic-pattern** : Patterns harmoniques Fibonacci
+- **scalping-entry-exit** : Scalping rapide EMA/RSI
 
 ```
 DEFAULT_POSITION_SIZE=0.015
@@ -59,106 +129,110 @@ LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%) (non utilisé
 
 ### Autres paramètres
 
-```
+```env
 POLL_INTERVAL=3000 # Intervalle de mise à jour des données de marché (ms)
 MAX_LEVERAGE=2.5 # Effet de levier maximum
 POSITION_ANALYSIS_INTERVAL=180000 # Intervalle d'analyse des positions (3 minutes)
-LOG_LEVEL="info" # Niveau de log (debug, info, warn, error)
+LOG_LEVEL="debug" # Niveau de log (debug, info, warn, error)
 LOG_TO_FILE="true" # Activer les logs dans un fichier
 LOG_FILE_PATH="./logs/lukaya.log" # Chemin du fichier de logs
 ```
 
 ### Gestion des ordres
 
-Par défaut, et pour une meilleure compatibilité avec dYdX, le bot utilise des **ordres au marché** (`USE_LIMIT_ORDERS=false`).
-L'utilisation d'ordres limite est configurable via la variable d'environnement `USE_LIMIT_ORDERS=true`. Si activée :
-- Les ordres d'achat seraient placés légèrement au-dessus du prix bid.
-- Les ordres de vente seraient placés légèrement en-dessous du prix ask.
-- Le `LIMIT_ORDER_BUFFER` déterminerait la distance.
-- Les ordres pourraient être définis comme "postOnly" pour garantir l'ajout de liquidité (si supporté et configuré).
+Par défaut, le bot utilise des **ordres au marché** (`USE_LIMIT_ORDERS=false`) pour une meilleure compatibilité avec dYdX et une exécution immédiate.
 
-## Optimisations récentes
+### Configuration de la Stratégie Coordonnée
 
-### 1. Centralisation de la gestion du risque et des ordres
+La stratégie coordonnée dispose de nombreux paramètres configurables pour optimiser les performances :
 
-Le bot implémente désormais une architecture centralisée pour la gestion des risques et des ordres :
+```env
+# Stratégie coordonnée multi-approches
+COORDINATED_WAVE_DETECTION_LENGTH=80
+COORDINATED_PRICE_SENSITIVITY=0.015
+COORDINATED_DETECTION_LENGTH=150
+COORDINATED_FIB_RETRACEMENT_TOLERANCE=0.03
+COORDINATED_PATTERN_CONFIRMATION_PCT=65
+COORDINATED_VOLUME_THRESHOLD=1.3
+COORDINATED_VOLUME_MA_LENGTH=18
+COORDINATED_PRICE_MA_LENGTH=12
+COORDINATED_VOLUME_SPIKE_FACTOR=1.8
+COORDINATED_FAST_EMA_PERIOD=20
+COORDINATED_SLOW_EMA_PERIOD=50
+COORDINATED_RSI_PERIOD=7
+COORDINATED_MOMENTUM_PERIOD=10
+COORDINATED_MAX_HOLDING_PERIOD=15
+COORDINATED_PROFIT_TARGET_PERCENT=0.003
+COORDINATED_STOP_LOSS_PERCENT=0.002
+COORDINATED_RSI_OVERBOUGHT_LEVEL=70
+COORDINATED_RSI_OVERSOLD_LEVEL=30
+COORDINATED_MOMENTUM_THRESHOLD=0.002
+COORDINATED_PRICE_DEVIATION_THRESHOLD=0.001
+
+# Seuils de confiance (critiques pour la qualité des signaux)
+COORDINATED_TREND_CONFIDENCE_THRESHOLD=0.35
+COORDINATED_PATTERN_CONFIDENCE_THRESHOLD=0.3
+COORDINATED_VOLUME_CONFIDENCE_THRESHOLD=0.25
+COORDINATED_OVERALL_CONFIDENCE_THRESHOLD=0.45
+COORDINATED_POSITION_SIZE=0.01
+```
+
+**Note importante** : Les seuils de confiance déterminent la qualité des signaux. Plus ils sont élevés, moins il y aura de signaux mais ils seront de meilleure qualité.
+
+## Architecture et Performances
+
+### Architecture d'Acteurs
+
+Le bot utilise une architecture d'acteurs moderne qui offre :
+
+- **Modularité** : Chaque composant (Risk Manager, Performance Tracker, Take Profit Manager) est un acteur indépendant
+- **Résilience** : Les acteurs peuvent être redémarrés individuellement en cas d'erreur
+- **Scalabilité** : Facilité d'ajout de nouvelles stratégies et fonctionnalités
+- **Monitoring** : Suivi détaillé des performances en temps réel
+
+### Gestion Centralisée du Risque
 
 - `RiskManager` : Évalue chaque ordre selon les paramètres de risque configurés
-- `OrderManager` : Gère le cycle de vie complet des ordres et communique avec le RiskManager
+- `OrderManager` : Gère le cycle de vie complet des ordres
+- Protection automatique du capital avec stop-loss et analyse de viabilité
 
-Cette architecture offre plusieurs avantages :
-- Meilleure cohérence dans l'évaluation des risques
-- Prévention des conflits d'ordres
-- Suivi centralisé de l'historique des ordres
-- Gestion plus précise de l'exposition totale
+### Système de Take Profit Automatique (Règle 3-5-7)
 
-### 2. Parallélisation du polling et de l'exécution des stratégies
+Gestion automatisée des prises de profit avec trois niveaux :
+- **3%** : Fermeture de 30% de la position
+- **5%** : Fermeture de 30% supplémentaires  
+- **7%** : Fermeture du reste de la position
 
-Le traitement des données de marché et l'exécution des stratégies sont maintenant parallélisés :
+## Tests et Backtesting
 
-- Polling parallèle pour plusieurs symboles
-- Exécution concurrente des stratégies avec limitation configurable
-- Traitement par lots pour optimiser les performances
-
-Configuration :
-```
-PARALLEL_EXECUTION=true
-BATCH_SIZE=5
-CONCURRENCY_LIMIT=4
-```
-
-### 3. Backtesting et tests d'intégration
-
-Un système complet de backtesting a été ajouté pour tester les stratégies sur des données historiques :
-
-- Chargement de données historiques depuis diverses sources
-- Simulation précise avec slippage et frais de trading
-- Métriques de performance détaillées (Sharpe, Sortino, drawdown, etc.)
-- Interface en ligne de commande pour les backtests
-
-## Utilisation du backtesting
-
-### Exécuter un backtest simple
-
-```bash
-bun run backtest run --strategy rsi-divergence --config src/backtest/examples/backtest-config.json
-```
-
-### Comparer plusieurs stratégies
-
-```bash
-bun run backtest compare --strategies rsi-divergence,volume-analysis,harmonic-pattern --config src/backtest/examples/backtest-config.json
-```
-
-### Optimiser les paramètres d'une stratégie
-
-```bash
-bun run backtest optimize --strategy elliott-wave --config src/backtest/examples/backtest-config.json --params src/backtest/examples/parameter-ranges.json
-```
-
-### Visualiser la liste des stratégies disponibles
-
-```bash
-bun run backtest list
-```
-
-## Tests
-
-Le projet inclut désormais des tests d'intégration et de performance :
+Le projet inclut un système complet de tests et de backtesting :
 
 ```bash
 # Exécuter tous les tests
-bun run test
+bun test
 
 # Exécuter uniquement les tests d'intégration
-bun run test:integration
+bun test:integration
 
 # Exécuter les tests avec couverture
-bun run test:coverage
+bun test:coverage
 ```
-- Détection des patterns Gartley, Butterfly, Bat
-- Validation par confluence des niveaux
-- Signaux haute probabilité aux zones de retournement
+
+### Utilisation du backtesting
+
+```bash
+# Exécuter un backtest simple
+bun run backtest run --strategy rsi-divergence --config src/backtest/examples/backtest-config.json
+
+# Comparer plusieurs stratégies
+bun run backtest compare --strategies rsi-divergence,volume-analysis,harmonic-pattern --config src/backtest/examples/backtest-config.json
+
+# Optimiser les paramètres d'une stratégie
+bun run backtest optimize --strategy elliott-wave --config src/backtest/examples/backtest-config.json --params src/backtest/examples/parameter-ranges.json
+
+# Visualiser la liste des stratégies disponibles
+bun run backtest list
+```
 
 ## Lancement
 
@@ -183,158 +257,72 @@ Le bot de trading:
 
 ## Gestion automatique des prises de profit (Règle 3-5-7)
 
-Le bot implémente la règle 3-5-7 pour gérer les prises de profit de manière structurée et disciplinée:
+Le bot implémente automatiquement la règle 3-5-7 pour optimiser les prises de profit :
 
-1. **Premier palier (3%)**: Fermeture de 30% de la position lorsque le profit atteint 3%
-2. **Deuxième palier (5%)**: Fermeture de 30% supplémentaires lorsque le profit atteint 5%
-3. **Troisième palier (7%)**: Fermeture du reste de la position lorsque le profit atteint 7%
+1. **Premier palier (3%)** : Fermeture de 30% de la position
+2. **Deuxième palier (5%)** : Fermeture de 30% supplémentaires  
+3. **Troisième palier (7%)** : Fermeture du reste de la position
 
-Cette approche permet de:
-- Sécuriser progressivement les gains
-- Laisser courir une partie des profits
-- Maximiser le ratio risque/récompense
-- Maintenir une discipline de trading systématique
+### Configuration
 
-### Configuration de la règle 3-5-7
-
-Les paramètres sont entièrement configurables via les variables d'environnement:
-
-```
+```env
 # Take profit rules (Règle 3-5-7)
 TAKE_PROFIT_RULE_ENABLED=true
 TAKE_PROFIT_LEVEL_1=3       # Premier niveau de profit (%)
-TAKE_PROFIT_SIZE_1=30       # Pourcentage de la position à fermer au premier niveau
+TAKE_PROFIT_SIZE_1=30       # Pourcentage de la position à fermer
 TAKE_PROFIT_LEVEL_2=5       # Deuxième niveau de profit (%)
-TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer au deuxième niveau
+TAKE_PROFIT_SIZE_2=30       # Pourcentage de la position à fermer
 TAKE_PROFIT_LEVEL_3=7       # Troisième niveau de profit (%)
-TAKE_PROFIT_SIZE_3=100      # Pourcentage de la position restante à fermer à ce niveau (assure la fermeture complète si les paliers précédents sont configurés pour ne pas fermer 100%)
-TRAILING_MODE=false         # Activer/désactiver le trailing take profit (variable d'env: TRAILING_MODE)
-TAKE_PROFIT_COOLDOWN=300000 # Délai entre les prises de profit (ms)
+TAKE_PROFIT_SIZE_3=100      # Fermeture complète du reste
+TAKE_PROFIT_TRAILING=false  # Mode trailing (optionnel)
+TAKE_PROFIT_COOLDOWN=300000 # Délai entre prises de profit (5 min)
 ```
 
-### Fonctionnement de la règle 3-5-7
+### Avantages
 
-1. **Activation automatique**: Le système surveille en continu toutes les positions ouvertes.
-2. **Déclenchement des paliers**: Lorsqu'un niveau de profit est atteint, le système exécute automatiquement une prise de profit partielle.
-3. **Suivi des niveaux**: Chaque niveau de profit n'est déclenché qu'une seule fois pour éviter les fermetures multiples.
-4. **Mode trailing (optionnel)**: Lorsque activé, les niveaux de profit sont relatifs au prix le plus favorable atteint, permettant de protéger davantage les gains.
-5. **Période de refroidissement**: Un délai configurable entre les prises de profit évite les transactions excessives en cas de volatilité.
-
-### Avantages de la règle 3-5-7
-
-- **Équilibre risque/récompense**: Le ratio risque/récompense est optimisé (avec un stop loss standard à 2%, le ratio est de 1:3.5).
-- **Discipline de trading**: Élimination des biais émotionnels en automatisant les prises de profit.
-- **Flexibilité**: Les paramètres peuvent être ajustés selon la volatilité du marché et votre tolérance au risque.
-- **Maximisation des profits**: En laissant courir une partie de la position, vous pouvez capturer des mouvements de prix plus importants.
+- **Sécurisation progressive** des gains
+- **Ratio risque/récompense optimisé** (1:3.5 avec stop-loss 2%)
+- **Discipline automatique** sans intervention manuelle
+- **Flexibilité** : paramètres ajustables selon la volatilité
 
 ## Analyse de viabilité des positions
 
-Le bot analyse régulièrement les positions ouvertes pour déterminer si elles sont toujours viables:
+Le bot analyse automatiquement les positions ouvertes toutes les 3 minutes :
 
-- **Vérification des stop-loss**: Clôture automatique des positions qui atteignent le seuil de stop-loss
-- **Suivi des prises de bénéfices**: Recommandation de clôture lorsque le niveau de take-profit est atteint
-- **Analyse du temps de détention**: Identification des positions maintenues trop longtemps sans profit
-- **Détection d'inversion de tendance**: Recommandation de clôture lorsque le marché change de direction
+- **Vérification des stop-loss** : Clôture automatique si seuil atteint (2% par défaut)
+- **Suivi des prises de bénéfices** : Application automatique de la règle 3-5-7
+- **Détection d'inversion de tendance** : Fermeture si conditions défavorables
+- **Analyse du temps de détention** : Identification des positions non rentables
 
-L'analyse de viabilité est effectuée automatiquement toutes les 5 minutes (configurable via POSITION_ANALYSIS_INTERVAL).
+**Protection automatique** : Les positions non viables sont fermées automatiquement avec des ordres `reduceOnly` pour protéger le capital.
 
-### Fermeture automatique des positions non viables
+## Lancement
 
-Lorsqu'une position est identifiée comme non viable, le bot la ferme automatiquement:
+```bash
+# Démarrer le bot
+bun start
 
-1. Un ordre de fermeture au marché est créé pour garantir une exécution immédiate
-2. L'ordre est marqué comme `reduceOnly` pour s'assurer qu'il ne fait que fermer la position existante
-3. La transaction est enregistrée dans le suivi de performance avec le tag `non_viable`
-4. Un message détaillé est inscrit dans les logs expliquant la raison de la fermeture
-
-Cette fonctionnalité protège automatiquement votre capital contre les pertes excessives sans intervention manuelle.
-
-#### Nouveautés et précisions importantes (mai 2025)
-
-- **maxFundsPerOrder** :
-  - Nouveau paramètre de gestion du risque, définit le pourcentage maximum des fonds disponibles pouvant être alloués à un seul ordre.
-  - Exemple : `MAX_FUNDS_PER_ORDER=0.25` (25% des fonds disponibles par ordre).
-  - Ce paramètre est distinct de `MAX_CAPITAL_PER_TRADE` (qui limite le capital par trade, toutes positions confondues).
-
-- **Actors et TakeProfit optionnels** :
-  - Les sections `actors` et `takeProfit` de la configuration sont optionnelles. Si elles sont omises, des valeurs par défaut sont appliquées.
-
-- **Logging** :
-  - Le paramètre `maxFileSize` est désormais de type `number` (taille en octets, ex: `10485760` pour 10 Mo).
-
-- **Stratégie : conflictResolutionMode**
-  - Le paramètre `conflictResolutionMode` n'accepte plus que les valeurs suivantes :
-    - `'performance_weighted'` (par défaut)
-    - `'risk_adjusted'`
-    - `'consensus'`
-  - Toute autre valeur (ex: `highest_confidence`) n'est plus supportée.
-
-#### Exemple de configuration JSON à jour
-
-```json
-{
-  "network": "mainnet",
-  "dydx": {
-    "mnemonic": "...",
-    "defaultSubaccountNumber": 0
-  },
-  "trading": {
-    "defaultSymbols": ["BTC-USD", "ETH-USD"],
-    "defaultPositionSize": 0.01,
-    "maxLeverage": 2,
-    "pollInterval": 5000,
-    "maxSlippagePercent": 1.0,
-    "minLiquidityRatio": 10.0,
-    "riskPerTrade": 0.01,
-    "stopLossPercent": 0.02,
-    "defaultAccountSize": 10000,
-    "maxCapitalPerTrade": 0.25,
-    "maxFundsPerOrder": 0.25,
-    "positionAnalysisInterval": 300000,
-    "limitOrderBuffer": 0.0005,
-    "useLimitOrders": false
-  },
-  "strategies": [
-    {
-      "type": "rsi-divergence",
-      "enabled": true,
-      "weight": 0.25,
-      "parameters": { "rsiPeriod": 8, "divergenceWindow": 5, "symbol": "BTC-USD", "positionSize": 0.01, "overboughtLevel": 70, "oversoldLevel": 30 }
-    }
-  ],
-  "logging": {
-    "level": "info",
-    "fileOutput": true,
-    "logFilePath": "./logs/lukaya.log",
-    "maxFileSize": 10485760,
-    "maxFiles": 5
-  },
-  "actors": {
-    "riskManager": { "maxOpenPositions": 3 },
-    "strategyManager": {
-      "autoAdjustWeights": true,
-      "maxActiveStrategies": 4,
-      "conflictResolutionMode": "performance_weighted",
-      "optimizationEnabled": true
-    },
-    "performanceTracker": {
-      "historyLength": 100,
-      "trackOpenPositions": true,
-      "realTimeUpdates": true,
-      "calculationInterval": 300000
-    }
-  },
-  "takeProfit": {
-    "enabled": true,
-    "profitTiers": [
-      { "profitPercentage": 3, "closePercentage": 30 },
-      { "profitPercentage": 5, "closePercentage": 30 },
-      { "profitPercentage": 10, "closePercentage": 40 }
-    ],
-    "cooldownPeriod": 600000,
-    "trailingMode": false
-  }
-}
+# Mode développement avec logs détaillés
+bun dev
 ```
 
-> Pour plus de détails, voir le fichier `src/shared/interfaces/config.interface.ts`.
+## Monitoring et Logs
+
+Le bot génère des logs détaillés pour suivre :
+- ✅ Ouverture/fermeture des trades avec émojis (🚀💰📉)
+- ✅ Performance par stratégie en temps réel
+- ✅ PNL non réalisé des positions ouvertes
+- ✅ Statistiques globales et métriques de risque
+- ✅ Analyse de viabilité des positions
+
+**Fichiers de logs** : `./logs/lukaya.log` (avec rotation automatique)
+
+## Documentation Technique
+
+- **`SCHEMA_ARCHITECTURE.md`** : Architecture détaillée du système
+- **`SUIVI_POSITIONS_OUVERTES.md`** : Système de suivi des positions
+- **`src/application/actors/performance-tracker/README.md`** : Documentation des logs de performance
+
+---
+
+**Lukaya** représente une approche professionnelle du trading algorithmique, combinant analyse technique sophistiquée et gestion rigoureuse du risque pour maximiser les performances tout en protégeant le capital. 🚀
