@@ -53,11 +53,11 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
 
 // Couleurs pour la sortie console
 const COLORS = {
-  debug: '\x1b[36m', // Cyan
-  info: '\x1b[32m',  // Vert
-  warn: '\x1b[33m',  // Jaune
-  error: '\x1b[31m', // Rouge
-  reset: '\x1b[0m',  // Reset
+  debug: "\x1b[36m", // Cyan
+  info: "\x1b[32m", // Vert
+  warn: "\x1b[33m", // Jaune
+  error: "\x1b[31m", // Rouge
+  reset: "\x1b[0m", // Reset
 } as const;
 
 /**
@@ -74,7 +74,7 @@ const formatMessage = (
   level: LogLevel,
   message: string,
   context?: LogContext,
-  source?: string
+  source?: string,
 ): string => {
   const parts: string[] = [];
 
@@ -102,7 +102,7 @@ const formatMessage = (
     parts.push(JSON.stringify(sanitizedContext));
   }
 
-  return parts.join(' ');
+  return parts.join(" ");
 };
 
 /**
@@ -135,9 +135,11 @@ const writeToFile = (message: string): void => {
     }
 
     // Écrire le message
-    fs.appendFileSync(loggerConfig.logFilePath, message + '\n', { encoding: 'utf8' });
+    fs.appendFileSync(loggerConfig.logFilePath, message + "\n", {
+      encoding: "utf8",
+    });
   } catch (error) {
-    console.error('Erreur lors de l\'écriture du log:', error);
+    console.error("Erreur lors de l'écriture du log:", error);
   }
 };
 
@@ -148,12 +150,18 @@ const rotateLogFiles = (): void => {
   if (!loggerConfig.logFilePath) return;
 
   const logDir = path.dirname(loggerConfig.logFilePath);
-  const logBaseName = path.basename(loggerConfig.logFilePath, path.extname(loggerConfig.logFilePath));
+  const logBaseName = path.basename(
+    loggerConfig.logFilePath,
+    path.extname(loggerConfig.logFilePath),
+  );
   const logExt = path.extname(loggerConfig.logFilePath);
 
   try {
     // Supprimer le fichier le plus ancien si on atteint la limite
-    const oldestFile = path.join(logDir, `${logBaseName}.${loggerConfig.maxFiles - 1}${logExt}`);
+    const oldestFile = path.join(
+      logDir,
+      `${logBaseName}.${loggerConfig.maxFiles - 1}${logExt}`,
+    );
     if (fs.existsSync(oldestFile)) {
       fs.unlinkSync(oldestFile);
     }
@@ -174,7 +182,7 @@ const rotateLogFiles = (): void => {
       fs.renameSync(loggerConfig.logFilePath, firstBackup);
     }
   } catch (error) {
-    console.error('Erreur lors de la rotation des logs:', error);
+    console.error("Erreur lors de la rotation des logs:", error);
   }
 };
 
@@ -187,7 +195,7 @@ const createLogger = (): Logger => {
       if (shouldLog("debug")) {
         const formattedMessage = formatMessage("debug", message, context);
         const colorizedMessage = colorizeMessage("debug", formattedMessage);
-        
+
         console.debug(colorizedMessage);
         writeToFile(formattedMessage);
       }
@@ -197,7 +205,7 @@ const createLogger = (): Logger => {
       if (shouldLog("info")) {
         const formattedMessage = formatMessage("info", message, context);
         const colorizedMessage = colorizeMessage("info", formattedMessage);
-        
+
         console.info(colorizedMessage);
         writeToFile(formattedMessage);
       }
@@ -207,7 +215,7 @@ const createLogger = (): Logger => {
       if (shouldLog("warn")) {
         const formattedMessage = formatMessage("warn", message, context);
         const colorizedMessage = colorizeMessage("warn", formattedMessage);
-        
+
         console.warn(colorizedMessage);
         writeToFile(formattedMessage);
       }
@@ -215,13 +223,13 @@ const createLogger = (): Logger => {
 
     error: (message: string, error?: Error, context?: LogContext): void => {
       if (shouldLog("error")) {
-        const errorContext = error 
+        const errorContext = error
           ? { ...context, errorMessage: error.message, stack: error.stack }
           : context;
-        
+
         const formattedMessage = formatMessage("error", message, errorContext);
         const colorizedMessage = colorizeMessage("error", formattedMessage);
-        
+
         console.error(colorizedMessage);
         writeToFile(formattedMessage);
       }
@@ -248,9 +256,9 @@ export const initializeLogger = (config: Partial<LoggerConfig>): void => {
 
   // Créer le répertoire de log si nécessaire
   if (loggerConfig.fileOutput && loggerConfig.logFilePath) {
-        const logDir = path.dirname(loggerConfig.logFilePath);
+    const logDir = path.dirname(loggerConfig.logFilePath);
     if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true } as any);
+      fs.mkdirSync(logDir, { recursive: true });
     }
   }
 
@@ -277,28 +285,28 @@ export const getLogger = (): Logger => {
  */
 export const createContextualLogger = (source: string): Logger => {
   const baseLogger = getLogger();
-  
+
   return {
     debug: (message: string, context?: LogContext) => {
       const enhancedContext = { ...context, source };
       baseLogger.debug(message, enhancedContext);
     },
-    
+
     info: (message: string, context?: LogContext) => {
       const enhancedContext = { ...context, source };
       baseLogger.info(message, enhancedContext);
     },
-    
+
     warn: (message: string, context?: LogContext) => {
       const enhancedContext = { ...context, source };
       baseLogger.warn(message, enhancedContext);
     },
-    
+
     error: (message: string, error?: Error, context?: LogContext) => {
       const enhancedContext = { ...context, source };
       baseLogger.error(message, error, enhancedContext);
     },
-    
+
     setLevel: baseLogger.setLevel,
     setConfig: baseLogger.setConfig,
   };
@@ -311,25 +319,29 @@ export const loggerUtils = {
    */
   logPerformance: async <T>(
     operation: string,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
   ): Promise<T> => {
     const logger = getLogger();
     const startTime = Date.now();
-    
+
     logger.debug(`Début de l'opération: ${operation}`);
-    
+
     try {
       const result = await fn();
       const duration = Date.now() - startTime;
-      
-      logger.debug(`Opération terminée: ${operation}`, { duration_ms: duration });
-      
+
+      logger.debug(`Opération terminée: ${operation}`, {
+        duration_ms: duration,
+      });
+
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
-      
-      logger.error(`Échec de l'opération: ${operation}`, error as Error, { duration_ms: duration });
-      
+
+      logger.error(`Échec de l'opération: ${operation}`, error as Error, {
+        duration_ms: duration,
+      });
+
       throw error;
     }
   },
@@ -337,14 +349,14 @@ export const loggerUtils = {
   /**
    * Log l'état d'un acteur
    */
-  logActorState: (actorId: string, state: any, action?: string): void => {
+  logActorState: (actorId: string, state: unknown, action?: string): void => {
     const logger = getLogger();
     const sanitizedState = logging.sanitize(state);
-    
-    logger.debug(`État de l'acteur ${actorId}`, {
+    logger.debug(`Actor [${actorId}] ${action ? `${action}: ` : ""}`, {
       actorId,
       action,
       state: sanitizedState,
+      timestamp: new Date().toISOString(),
     });
   },
 
@@ -352,12 +364,17 @@ export const loggerUtils = {
    * Log une transaction de trading
    */
   logTrade: (
-    action: 'order_placed' | 'order_filled' | 'order_cancelled' | 'position_opened' | 'position_closed',
-    details: any
+    action:
+      | "order_placed"
+      | "order_filled"
+      | "order_cancelled"
+      | "position_opened"
+      | "position_closed",
+    details: any,
   ): void => {
     const logger = getLogger();
     const sanitizedDetails = logging.sanitize(details);
-    
+
     logger.info(`Action de trading: ${action}`, sanitizedDetails);
   },
 };

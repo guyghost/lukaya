@@ -137,8 +137,8 @@ describe("RateLimiter Tests", () => {
       const limiter = new RateLimiter(config);
 
       // Open circuit breaker
-      limiter.recordFailure("Error 1");
-      limiter.recordFailure("Error 2");
+      limiter.recordFailure();
+      limiter.recordFailure();
 
       expect(limiter.checkLimit().allowed).toBe(false);
 

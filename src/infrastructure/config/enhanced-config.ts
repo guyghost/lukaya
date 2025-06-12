@@ -4,19 +4,31 @@
 
 import { z } from "zod";
 import { Network } from "@dydxprotocol/v4-client-js";
-import { TRADING_CONSTANTS, STRATEGY_CONSTANTS, TAKE_PROFIT_CONSTANTS } from "../../shared/constants";
+import {
+  TRADING_CONSTANTS,
+  STRATEGY_CONSTANTS,
+  TAKE_PROFIT_CONSTANTS,
+} from "../../shared/constants";
 import { LogLevel } from "../../shared/types";
-import { 
-  DEFAULT_TRADING_CONFIG, 
-  DEFAULT_ACTORS_CONFIG, 
-  DEFAULT_TAKE_PROFIT_CONFIG, 
+import {
+  DEFAULT_TRADING_CONFIG,
+  DEFAULT_ACTORS_CONFIG,
+  DEFAULT_TAKE_PROFIT_CONFIG,
   DEFAULT_LOGGING_CONFIG,
-  DEFAULT_STRATEGY_CONFIGS
+  DEFAULT_STRATEGY_CONFIGS,
 } from "../../config/defaults";
 
 // Schema de validation pour les stratégies
 const strategyConfigSchema = z.object({
-  type: z.enum(['rsi-div', 'rsi-divergence', 'volume-analysis', 'elliott-wave', 'harmonic-pattern', 'scalping-entry-exit', 'coordinated-multi-strategy']), // Added coordinated-multi-strategy
+  type: z.enum([
+    "rsi-div",
+    "rsi-divergence",
+    "volume-analysis",
+    "elliott-wave",
+    "harmonic-pattern",
+    "scalping-entry-exit",
+    "coordinated-multi-strategy",
+  ]), // Added coordinated-multi-strategy
   enabled: z.boolean().default(true),
   weight: z.number().min(0).max(1).default(0.25),
   parameters: z.record(z.unknown()).default({}),
@@ -25,61 +37,71 @@ const strategyConfigSchema = z.object({
 // Schema de validation pour la configuration de trading
 const tradingConfigSchema = z.object({
   // Symboles et positions
-  defaultSymbols: z.array(z.string()).default(DEFAULT_TRADING_CONFIG.defaultSymbols),
-  defaultPositionSize: z.number()
+  defaultSymbols: z
+    .array(z.string())
+    .default(DEFAULT_TRADING_CONFIG.defaultSymbols),
+  defaultPositionSize: z
+    .number()
     .min(TRADING_CONSTANTS.MIN_POSITION_SIZE)
     .max(TRADING_CONSTANTS.MAX_POSITION_SIZE)
     .default(DEFAULT_TRADING_CONFIG.defaultPositionSize),
-  
+
   // Gestion du risque
-  riskPerTrade: z.number()
+  riskPerTrade: z
+    .number()
     .min(0)
     .max(TRADING_CONSTANTS.MAX_RISK_PER_TRADE)
     .default(DEFAULT_TRADING_CONFIG.riskPerTrade),
-  stopLossPercent: z.number()
+  stopLossPercent: z
+    .number()
     .min(0)
     .max(0.1)
     .default(DEFAULT_TRADING_CONFIG.stopLossPercent),
-  maxLeverage: z.number()
+  maxLeverage: z
+    .number()
     .min(1)
     .max(TRADING_CONSTANTS.MAX_LEVERAGE)
     .default(DEFAULT_TRADING_CONFIG.maxLeverage),
-  
+
   // Tailles et limites
-  defaultAccountSize: z.number()
+  defaultAccountSize: z
+    .number()
     .positive()
     .default(DEFAULT_TRADING_CONFIG.defaultAccountSize),
-  maxCapitalPerTrade: z.number()
+  maxCapitalPerTrade: z
+    .number()
     .min(0)
     .max(1)
     .default(DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
-  maxFundsPerOrder: z.number()
+  maxFundsPerOrder: z
+    .number()
     .min(0)
     .max(1)
     .default(DEFAULT_TRADING_CONFIG.maxFundsPerOrder),
-  
+
   // Liquidité et slippage
-  maxSlippagePercent: z.number()
+  maxSlippagePercent: z
+    .number()
     .min(0)
     .max(TRADING_CONSTANTS.MAX_SLIPPAGE_PERCENT)
     .default(DEFAULT_TRADING_CONFIG.maxSlippagePercent),
-  minLiquidityRatio: z.number()
+  minLiquidityRatio: z
+    .number()
     .positive()
     .default(DEFAULT_TRADING_CONFIG.minLiquidityRatio),
-  
+
   // Intervalles et timing
-  pollInterval: z.number()
+  pollInterval: z
+    .number()
     .positive()
     .default(DEFAULT_TRADING_CONFIG.pollInterval),
-  positionAnalysisInterval: z.number()
+  positionAnalysisInterval: z
+    .number()
     .positive()
     .default(DEFAULT_TRADING_CONFIG.positionAnalysisInterval),
-  
+
   // Ordres
-  limitOrderBuffer: z.number()
-    .min(0)
-    .max(0.01)
-    .default(0.0005),
+  limitOrderBuffer: z.number().min(0).max(0.01).default(0.0005),
   useLimitOrders: z.boolean().default(false), // Toujours utiliser des ordres market pour dYdX
 });
 
@@ -91,47 +113,96 @@ const dydxConfigSchema = z.object({
 
 // Schema de validation pour le logging
 const loggingConfigSchema = z.object({
-  level: z.enum(["debug", "info", "warn", "error"] as const).default(DEFAULT_LOGGING_CONFIG.level),
+  level: z
+    .enum(["debug", "info", "warn", "error"] as const)
+    .default(DEFAULT_LOGGING_CONFIG.level),
   fileOutput: z.boolean().default(DEFAULT_LOGGING_CONFIG.fileOutput),
-  logFilePath: z.string().optional().default(DEFAULT_LOGGING_CONFIG.logFilePath),
-  maxFileSize: z.number().positive().default(DEFAULT_LOGGING_CONFIG.maxFileSize),
+  logFilePath: z
+    .string()
+    .optional()
+    .default(DEFAULT_LOGGING_CONFIG.logFilePath),
+  maxFileSize: z
+    .number()
+    .positive()
+    .default(DEFAULT_LOGGING_CONFIG.maxFileSize),
   maxFiles: z.number().positive().default(DEFAULT_LOGGING_CONFIG.maxFiles),
 });
 
 // Schema de validation pour la prise de profit
 const takeProfitConfigSchema = z.object({
   enabled: z.boolean().default(DEFAULT_TAKE_PROFIT_CONFIG.enabled),
-  profitTiers: z.array(z.object({
-    profitPercentage: z.number().positive(),
-    closePercentage: z.number().min(0).max(100),
-  })).default(DEFAULT_TAKE_PROFIT_CONFIG.profitTiers),
-  cooldownPeriod: z.number().positive().default(DEFAULT_TAKE_PROFIT_CONFIG.cooldownPeriod),
+  profitTiers: z
+    .array(
+      z.object({
+        profitPercentage: z.number().positive(),
+        closePercentage: z.number().min(0).max(100),
+      }),
+    )
+    .default(DEFAULT_TAKE_PROFIT_CONFIG.profitTiers),
+  cooldownPeriod: z
+    .number()
+    .positive()
+    .default(DEFAULT_TAKE_PROFIT_CONFIG.cooldownPeriod),
   trailingMode: z.boolean().default(DEFAULT_TAKE_PROFIT_CONFIG.trailingMode),
-  trailingStopActivation: z.number().positive().default(TAKE_PROFIT_CONSTANTS.TRAILING_STOP_ACTIVATION),
+  trailingStopActivation: z
+    .number()
+    .positive()
+    .default(TAKE_PROFIT_CONSTANTS.TRAILING_STOP_ACTIVATION),
 });
 
 // Schema de validation pour les acteurs
 const actorsConfigSchema = z.object({
-  riskManager: z.object({
-    maxOpenPositions: z.number().positive().default(DEFAULT_ACTORS_CONFIG.riskManager.maxOpenPositions),
-    maxDailyLoss: z.number().positive().default(DEFAULT_ACTORS_CONFIG.riskManager.dailyLossLimit / 100), // Convertir de % à décimal
-    diversificationWeight: z.number().min(0).max(1).default(0.3),
-    volatilityAdjustment: z.boolean().default(true),
-  }).default({}),
-  
-  strategyManager: z.object({
-    autoAdjustWeights: z.boolean().default(DEFAULT_ACTORS_CONFIG.strategyManager.autoAdjustWeights),
-    maxActiveStrategies: z.number().positive().default(DEFAULT_ACTORS_CONFIG.strategyManager.maxActiveStrategies),
-    conflictResolutionMode: z.enum(['performance_weighted', 'risk_adjusted', 'consensus']).default('performance_weighted'),
-    optimizationEnabled: z.boolean().default(DEFAULT_ACTORS_CONFIG.strategyManager.optimizationEnabled),
-  }).default({}),
-  
-  performanceTracker: z.object({
-    historyLength: z.number().positive().default(DEFAULT_ACTORS_CONFIG.performanceTracker.historyLength),
-    trackOpenPositions: z.boolean().default(DEFAULT_ACTORS_CONFIG.performanceTracker.trackOpenPositions),
-    realTimeUpdates: z.boolean().default(DEFAULT_ACTORS_CONFIG.performanceTracker.realTimeUpdates),
-    calculationInterval: z.number().positive().default(DEFAULT_ACTORS_CONFIG.performanceTracker.calculationInterval),
-  }).default({}),
+  riskManager: z
+    .object({
+      maxOpenPositions: z
+        .number()
+        .positive()
+        .default(DEFAULT_ACTORS_CONFIG.riskManager.maxOpenPositions),
+      maxDailyLoss: z
+        .number()
+        .positive()
+        .default(DEFAULT_ACTORS_CONFIG.riskManager.dailyLossLimit / 100), // Convertir de % à décimal
+      diversificationWeight: z.number().min(0).max(1).default(0.3),
+      volatilityAdjustment: z.boolean().default(true),
+    })
+    .default({}),
+
+  strategyManager: z
+    .object({
+      autoAdjustWeights: z
+        .boolean()
+        .default(DEFAULT_ACTORS_CONFIG.strategyManager.autoAdjustWeights),
+      maxActiveStrategies: z
+        .number()
+        .positive()
+        .default(DEFAULT_ACTORS_CONFIG.strategyManager.maxActiveStrategies),
+      conflictResolutionMode: z
+        .enum(["performance_weighted", "risk_adjusted", "consensus"])
+        .default("performance_weighted"),
+      optimizationEnabled: z
+        .boolean()
+        .default(DEFAULT_ACTORS_CONFIG.strategyManager.optimizationEnabled),
+    })
+    .default({}),
+
+  performanceTracker: z
+    .object({
+      historyLength: z
+        .number()
+        .positive()
+        .default(DEFAULT_ACTORS_CONFIG.performanceTracker.historyLength),
+      trackOpenPositions: z
+        .boolean()
+        .default(DEFAULT_ACTORS_CONFIG.performanceTracker.trackOpenPositions),
+      realTimeUpdates: z
+        .boolean()
+        .default(DEFAULT_ACTORS_CONFIG.performanceTracker.realTimeUpdates),
+      calculationInterval: z
+        .number()
+        .positive()
+        .default(DEFAULT_ACTORS_CONFIG.performanceTracker.calculationInterval),
+    })
+    .default({}),
 });
 
 // Schema principal de configuration
@@ -155,20 +226,24 @@ export type TakeProfitConfig = z.infer<typeof takeProfitConfigSchema>;
  * Charge la configuration depuis les variables d'environnement
  */
 export const loadConfig = (): ConfigType => {
-  const symbols = (process.env.DEFAULT_SYMBOLS || "BTC-USD,ETH-USD,SOL-USD,LTC-USD")
+  const symbols = (
+    process.env.DEFAULT_SYMBOLS || "BTC-USD,ETH-USD,SOL-USD,LTC-USD"
+  )
     .split(",")
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 
   // Parse ACTIVE_STRATEGIES environment variable to determine which strategies to enable
   const activeStrategies = (process.env.ACTIVE_STRATEGIES || "")
     .split(",")
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-  
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
   // Helper function to check if a strategy is active
   const isStrategyActive = (strategyType: string) => {
-    return activeStrategies.length === 0 || activeStrategies.includes(strategyType);
+    return (
+      activeStrategies.length === 0 || activeStrategies.includes(strategyType)
+    );
   };
 
   const rawConfig = {
@@ -179,195 +254,489 @@ export const loadConfig = (): ConfigType => {
     },
     trading: {
       defaultSymbols: symbols,
-      defaultPositionSize: Number(process.env.DEFAULT_POSITION_SIZE || DEFAULT_TRADING_CONFIG.defaultPositionSize),
-      riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
-      stopLossPercent: Number(process.env.STOP_LOSS_PERCENT || DEFAULT_TRADING_CONFIG.stopLossPercent),
-      maxLeverage: Number(process.env.MAX_LEVERAGE || DEFAULT_TRADING_CONFIG.maxLeverage),
-      defaultAccountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
-      maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
-      maxFundsPerOrder: Number(process.env.MAX_FUNDS_PER_ORDER || DEFAULT_TRADING_CONFIG.maxFundsPerOrder),
-      maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),
-      minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || DEFAULT_TRADING_CONFIG.minLiquidityRatio),
-      pollInterval: Number(process.env.POLL_INTERVAL || DEFAULT_TRADING_CONFIG.pollInterval),
-      positionAnalysisInterval: Number(process.env.POSITION_ANALYSIS_INTERVAL || DEFAULT_TRADING_CONFIG.positionAnalysisInterval),
-      limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || DEFAULT_TRADING_CONFIG.limitOrderBuffer),
-      useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true' ? true : DEFAULT_TRADING_CONFIG.useLimitOrders,
+      defaultPositionSize: Number(
+        process.env.DEFAULT_POSITION_SIZE ||
+          DEFAULT_TRADING_CONFIG.defaultPositionSize,
+      ),
+      riskPerTrade: Number(
+        process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade,
+      ),
+      stopLossPercent: Number(
+        process.env.STOP_LOSS_PERCENT || DEFAULT_TRADING_CONFIG.stopLossPercent,
+      ),
+      maxLeverage: Number(
+        process.env.MAX_LEVERAGE || DEFAULT_TRADING_CONFIG.maxLeverage,
+      ),
+      defaultAccountSize: Number(
+        process.env.DEFAULT_ACCOUNT_SIZE ||
+          DEFAULT_TRADING_CONFIG.defaultAccountSize,
+      ),
+      maxCapitalPerTrade: Number(
+        process.env.MAX_CAPITAL_PER_TRADE ||
+          DEFAULT_TRADING_CONFIG.maxCapitalPerTrade,
+      ),
+      maxFundsPerOrder: Number(
+        process.env.MAX_FUNDS_PER_ORDER ||
+          DEFAULT_TRADING_CONFIG.maxFundsPerOrder,
+      ),
+      maxSlippagePercent: Number(
+        process.env.MAX_SLIPPAGE_PERCENT ||
+          DEFAULT_TRADING_CONFIG.maxSlippagePercent,
+      ),
+      minLiquidityRatio: Number(
+        process.env.MIN_LIQUIDITY_RATIO ||
+          DEFAULT_TRADING_CONFIG.minLiquidityRatio,
+      ),
+      pollInterval: Number(
+        process.env.POLL_INTERVAL || DEFAULT_TRADING_CONFIG.pollInterval,
+      ),
+      positionAnalysisInterval: Number(
+        process.env.POSITION_ANALYSIS_INTERVAL ||
+          DEFAULT_TRADING_CONFIG.positionAnalysisInterval,
+      ),
+      limitOrderBuffer: Number(
+        process.env.LIMIT_ORDER_BUFFER ||
+          DEFAULT_TRADING_CONFIG.limitOrderBuffer,
+      ),
+      useLimitOrders:
+        process.env.USE_LIMIT_ORDERS === "true"
+          ? true
+          : DEFAULT_TRADING_CONFIG.useLimitOrders,
     },
-    strategies: symbols.map(symbol => [
-      {
-        type: "rsi-div" as const,
-        enabled: isStrategyActive("rsi-divergence"),
-        weight: Number(process.env.RSI_DIVERGENCE_WEIGHT || 0.25),
-        parameters: {
-          rsiPeriod: Number(process.env.RSI_PERIOD || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].rsiPeriod),
-          overboughtLevel: Number(process.env.RSI_OVERBOUGHT || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].overboughtLevel),
-          oversoldLevel: Number(process.env.RSI_OVERSOLD || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].oversoldLevel),
-          divergenceWindow: Number(process.env.RSI_DIVERGENCE_LOOKBACK || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].divergenceWindow),
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.RSI_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].positionSize),
+    strategies: symbols
+      .map((symbol) => [
+        {
+          type: "rsi-div" as const,
+          enabled: isStrategyActive("rsi-divergence"),
+          weight: Number(process.env.RSI_DIVERGENCE_WEIGHT || 0.25),
+          parameters: {
+            rsiPeriod: Number(
+              process.env.RSI_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].rsiPeriod,
+            ),
+            overboughtLevel: Number(
+              process.env.RSI_OVERBOUGHT ||
+                DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].overboughtLevel,
+            ),
+            oversoldLevel: Number(
+              process.env.RSI_OVERSOLD ||
+                DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].oversoldLevel,
+            ),
+            divergenceWindow: Number(
+              process.env.RSI_DIVERGENCE_LOOKBACK ||
+                DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].divergenceWindow,
+            ),
+            symbol: symbol.trim(),
+            positionSize: Number(
+              process.env.RSI_POSITION_SIZE ||
+                DEFAULT_STRATEGY_CONFIGS["rsi-divergence"].positionSize,
+            ),
+          },
         },
-      },
-      {
-        type: "volume-analysis" as const,
-        enabled: isStrategyActive("volume-analysis"),
-        weight: Number(process.env.VOLUME_ANALYSIS_WEIGHT || 0.25),
-        parameters: {
-          volumeMALength: Number(process.env.VOLUME_MA_PERIOD || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeMALength),
-          volumeThreshold: Number(process.env.VOLUME_SPIKE_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeThreshold),
-          priceMALength: Number(process.env.PRICE_MA_LENGTH || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].priceMALength),
-          volumeSpikeFactor: Number(process.env.VOLUME_SPIKE_FACTOR || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeSpikeFactor),
-          priceSensitivity: Number(process.env.PRICE_SENSITIVITY || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].priceSensitivity),
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.VOLUME_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["volume-analysis"].positionSize),
+        {
+          type: "volume-analysis" as const,
+          enabled: isStrategyActive("volume-analysis"),
+          weight: Number(process.env.VOLUME_ANALYSIS_WEIGHT || 0.25),
+          parameters: {
+            volumeMALength: Number(
+              process.env.VOLUME_MA_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeMALength,
+            ),
+            volumeThreshold: Number(
+              process.env.VOLUME_SPIKE_THRESHOLD ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeThreshold,
+            ),
+            priceMALength: Number(
+              process.env.PRICE_MA_LENGTH ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].priceMALength,
+            ),
+            volumeSpikeFactor: Number(
+              process.env.VOLUME_SPIKE_FACTOR ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].volumeSpikeFactor,
+            ),
+            priceSensitivity: Number(
+              process.env.PRICE_SENSITIVITY ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].priceSensitivity,
+            ),
+            symbol: symbol.trim(),
+            positionSize: Number(
+              process.env.VOLUME_POSITION_SIZE ||
+                DEFAULT_STRATEGY_CONFIGS["volume-analysis"].positionSize,
+            ),
+          },
         },
-      },
-      {
-        type: "elliott-wave" as const,
-        enabled: isStrategyActive("elliott-wave"),
-        weight: Number(process.env.ELLIOTT_WAVE_WEIGHT || 0.25),
-        parameters: {
-          waveDetectionLength: Number(process.env.ELLIOTT_MIN_WAVE_LENGTH || DEFAULT_STRATEGY_CONFIGS["elliott-wave"].waveDetectionLength),
-          priceSensitivity: Number(process.env.ELLIOTT_PRICE_SENSITIVITY || DEFAULT_STRATEGY_CONFIGS["elliott-wave"].priceSensitivity),
-          zerolineBufferPercent: Number(process.env.ELLIOTT_ZEROLINE_BUFFER || DEFAULT_STRATEGY_CONFIGS["elliott-wave"].zerolineBufferPercent),
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.ELLIOTT_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["elliott-wave"].positionSize),
+        {
+          type: "elliott-wave" as const,
+          enabled: isStrategyActive("elliott-wave"),
+          weight: Number(process.env.ELLIOTT_WAVE_WEIGHT || 0.25),
+          parameters: {
+            waveDetectionLength: Number(
+              process.env.ELLIOTT_MIN_WAVE_LENGTH ||
+                DEFAULT_STRATEGY_CONFIGS["elliott-wave"].waveDetectionLength,
+            ),
+            priceSensitivity: Number(
+              process.env.ELLIOTT_PRICE_SENSITIVITY ||
+                DEFAULT_STRATEGY_CONFIGS["elliott-wave"].priceSensitivity,
+            ),
+            zerolineBufferPercent: Number(
+              process.env.ELLIOTT_ZEROLINE_BUFFER ||
+                DEFAULT_STRATEGY_CONFIGS["elliott-wave"].zerolineBufferPercent,
+            ),
+            symbol: symbol.trim(),
+            positionSize: Number(
+              process.env.ELLIOTT_POSITION_SIZE ||
+                DEFAULT_STRATEGY_CONFIGS["elliott-wave"].positionSize,
+            ),
+          },
         },
-      },
-      {
-        type: "harmonic-pattern" as const,
-        enabled: isStrategyActive("harmonic-pattern"),
-        weight: Number(process.env.HARMONIC_PATTERN_WEIGHT || 0.25),
-        parameters: {
-          detectionLength: Number(process.env.PATTERN_DETECTION_LENGTH || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].detectionLength),
-          fibRetracementTolerance: Number(process.env.FIB_RETRACEMENT_TOLERANCE || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].fibRetracementTolerance),
-          patternConfirmationPercentage: Number(process.env.PATTERN_CONFIRMATION_PCT || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].patternConfirmationPercentage),
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.HARMONIC_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].positionSize),
+        {
+          type: "harmonic-pattern" as const,
+          enabled: isStrategyActive("harmonic-pattern"),
+          weight: Number(process.env.HARMONIC_PATTERN_WEIGHT || 0.25),
+          parameters: {
+            detectionLength: Number(
+              process.env.PATTERN_DETECTION_LENGTH ||
+                DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].detectionLength,
+            ),
+            fibRetracementTolerance: Number(
+              process.env.FIB_RETRACEMENT_TOLERANCE ||
+                DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"]
+                  .fibRetracementTolerance,
+            ),
+            patternConfirmationPercentage: Number(
+              process.env.PATTERN_CONFIRMATION_PCT ||
+                DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"]
+                  .patternConfirmationPercentage,
+            ),
+            symbol: symbol.trim(),
+            positionSize: Number(
+              process.env.HARMONIC_POSITION_SIZE ||
+                DEFAULT_STRATEGY_CONFIGS["harmonic-pattern"].positionSize,
+            ),
+          },
         },
-      },
-      {
-        type: "scalping-entry-exit" as const,
-        enabled: isStrategyActive("scalping-entry-exit"),
-        weight: Number(process.env.SCALPING_WEIGHT || 0.25),
-        parameters: {
-          fastEmaPeriod: Number(process.env.SCALPING_FAST_EMA_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].fastEmaPeriod),
-          slowEmaPeriod: Number(process.env.SCALPING_SLOW_EMA_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].slowEmaPeriod),
-          rsiPeriod: Number(process.env.SCALPING_RSI_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiPeriod),
-          momentumPeriod: Number(process.env.SCALPING_MOMENTUM_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].momentumPeriod),
-          maxHoldingPeriod: Number(process.env.SCALPING_MAX_HOLDING_PERIOD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].maxHoldingPeriod),
-          profitTargetPercent: Number(process.env.SCALPING_PROFIT_TARGET_PERCENT || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].profitTargetPercent),
-          stopLossPercent: Number(process.env.SCALPING_STOP_LOSS_PERCENT || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].stopLossPercent),
-          rsiOverboughtLevel: Number(process.env.SCALPING_RSI_OVERBOUGHT_LEVEL || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiOverboughtLevel),
-          rsiOversoldLevel: Number(process.env.SCALPING_RSI_OVERSOLD_LEVEL || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiOversoldLevel),
-          momentumThreshold: Number(process.env.SCALPING_MOMENTUM_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].momentumThreshold),
-          priceDeviationThreshold: Number(process.env.SCALPING_PRICE_DEVIATION_THRESHOLD || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].priceDeviationThreshold),
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.SCALPING_POSITION_SIZE || DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].positionSize),
-          accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
-          riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
-          maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),
-          minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || DEFAULT_TRADING_CONFIG.minLiquidityRatio),
-          maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
-          limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || DEFAULT_TRADING_CONFIG.limitOrderBuffer),
-          useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true' ? true : DEFAULT_TRADING_CONFIG.useLimitOrders,
+        {
+          type: "scalping-entry-exit" as const,
+          enabled: isStrategyActive("scalping-entry-exit"),
+          weight: Number(process.env.SCALPING_WEIGHT || 0.25),
+          parameters: {
+            fastEmaPeriod: Number(
+              process.env.SCALPING_FAST_EMA_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].fastEmaPeriod,
+            ),
+            slowEmaPeriod: Number(
+              process.env.SCALPING_SLOW_EMA_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].slowEmaPeriod,
+            ),
+            rsiPeriod: Number(
+              process.env.SCALPING_RSI_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].rsiPeriod,
+            ),
+            momentumPeriod: Number(
+              process.env.SCALPING_MOMENTUM_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].momentumPeriod,
+            ),
+            maxHoldingPeriod: Number(
+              process.env.SCALPING_MAX_HOLDING_PERIOD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .maxHoldingPeriod,
+            ),
+            profitTargetPercent: Number(
+              process.env.SCALPING_PROFIT_TARGET_PERCENT ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .profitTargetPercent,
+            ),
+            stopLossPercent: Number(
+              process.env.SCALPING_STOP_LOSS_PERCENT ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].stopLossPercent,
+            ),
+            rsiOverboughtLevel: Number(
+              process.env.SCALPING_RSI_OVERBOUGHT_LEVEL ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .rsiOverboughtLevel,
+            ),
+            rsiOversoldLevel: Number(
+              process.env.SCALPING_RSI_OVERSOLD_LEVEL ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .rsiOversoldLevel,
+            ),
+            momentumThreshold: Number(
+              process.env.SCALPING_MOMENTUM_THRESHOLD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .momentumThreshold,
+            ),
+            priceDeviationThreshold: Number(
+              process.env.SCALPING_PRICE_DEVIATION_THRESHOLD ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"]
+                  .priceDeviationThreshold,
+            ),
+            symbol: symbol.trim(),
+            positionSize: Number(
+              process.env.SCALPING_POSITION_SIZE ||
+                DEFAULT_STRATEGY_CONFIGS["scalping-entry-exit"].positionSize,
+            ),
+            accountSize: Number(
+              process.env.DEFAULT_ACCOUNT_SIZE ||
+                DEFAULT_TRADING_CONFIG.defaultAccountSize,
+            ),
+            riskPerTrade: Number(
+              process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade,
+            ),
+            maxSlippagePercent: Number(
+              process.env.MAX_SLIPPAGE_PERCENT ||
+                DEFAULT_TRADING_CONFIG.maxSlippagePercent,
+            ),
+            minLiquidityRatio: Number(
+              process.env.MIN_LIQUIDITY_RATIO ||
+                DEFAULT_TRADING_CONFIG.minLiquidityRatio,
+            ),
+            maxCapitalPerTrade: Number(
+              process.env.MAX_CAPITAL_PER_TRADE ||
+                DEFAULT_TRADING_CONFIG.maxCapitalPerTrade,
+            ),
+            limitOrderBuffer: Number(
+              process.env.LIMIT_ORDER_BUFFER ||
+                DEFAULT_TRADING_CONFIG.limitOrderBuffer,
+            ),
+            useLimitOrders:
+              process.env.USE_LIMIT_ORDERS === "true"
+                ? true
+                : DEFAULT_TRADING_CONFIG.useLimitOrders,
+          },
         },
-      },
-      {
-        type: "coordinated-multi-strategy" as const,
-        enabled: isStrategyActive("coordinated-multi-strategy"),
-        weight: Number(process.env.COORDINATED_WEIGHT || 0.5),
-        parameters: {
-          // Elliott Wave settings
-          waveDetectionLength: Number(process.env.COORDINATED_WAVE_DETECTION_LENGTH || 100),
-          priceSensitivity: Number(process.env.COORDINATED_PRICE_SENSITIVITY || 0.01),
-          
-          // Harmonic Pattern settings
-          detectionLength: Number(process.env.COORDINATED_DETECTION_LENGTH || 200),
-          fibRetracementTolerance: Number(process.env.COORDINATED_FIB_RETRACEMENT_TOLERANCE || 0.02),
-          patternConfirmationPercentage: Number(process.env.COORDINATED_PATTERN_CONFIRMATION_PCT || 80),
-          
-          // Volume Analysis settings
-          volumeThreshold: Number(process.env.COORDINATED_VOLUME_THRESHOLD || 1.5),
-          volumeMALength: Number(process.env.COORDINATED_VOLUME_MA_LENGTH || 20),
-          priceMALength: Number(process.env.COORDINATED_PRICE_MA_LENGTH || 10),
-          volumeSpikeFactor: Number(process.env.COORDINATED_VOLUME_SPIKE_FACTOR || 2.0),
-          
-          // Scalping settings
-          fastEmaPeriod: Number(process.env.COORDINATED_FAST_EMA_PERIOD || 20),
-          slowEmaPeriod: Number(process.env.COORDINATED_SLOW_EMA_PERIOD || 50),
-          rsiPeriod: Number(process.env.COORDINATED_RSI_PERIOD || 7),
-          momentumPeriod: Number(process.env.COORDINATED_MOMENTUM_PERIOD || 10),
-          maxHoldingPeriod: Number(process.env.COORDINATED_MAX_HOLDING_PERIOD || 15),
-          profitTargetPercent: Number(process.env.COORDINATED_PROFIT_TARGET_PERCENT || 0.003),
-          stopLossPercent: Number(process.env.COORDINATED_STOP_LOSS_PERCENT || 0.002),
-          rsiOverboughtLevel: Number(process.env.COORDINATED_RSI_OVERBOUGHT_LEVEL || 70),
-          rsiOversoldLevel: Number(process.env.COORDINATED_RSI_OVERSOLD_LEVEL || 30),
-          momentumThreshold: Number(process.env.COORDINATED_MOMENTUM_THRESHOLD || 0.002),
-          priceDeviationThreshold: Number(process.env.COORDINATED_PRICE_DEVIATION_THRESHOLD || 0.001),
-          
-          // Coordination settings
-          trendConfidenceThreshold: Number(process.env.COORDINATED_TREND_CONFIDENCE_THRESHOLD || 0.6),
-          patternConfidenceThreshold: Number(process.env.COORDINATED_PATTERN_CONFIDENCE_THRESHOLD || 0.5),
-          volumeConfidenceThreshold: Number(process.env.COORDINATED_VOLUME_CONFIDENCE_THRESHOLD || 0.4),
-          overallConfidenceThreshold: Number(process.env.COORDINATED_OVERALL_CONFIDENCE_THRESHOLD || 0.7),
-          
-          symbol: symbol.trim(),
-          positionSize: Number(process.env.COORDINATED_POSITION_SIZE || 0.01),
-          accountSize: Number(process.env.DEFAULT_ACCOUNT_SIZE || DEFAULT_TRADING_CONFIG.defaultAccountSize),
-          riskPerTrade: Number(process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade),
-          maxSlippagePercent: Number(process.env.MAX_SLIPPAGE_PERCENT || DEFAULT_TRADING_CONFIG.maxSlippagePercent),
-          minLiquidityRatio: Number(process.env.MIN_LIQUIDITY_RATIO || DEFAULT_TRADING_CONFIG.minLiquidityRatio),
-          maxCapitalPerTrade: Number(process.env.MAX_CAPITAL_PER_TRADE || DEFAULT_TRADING_CONFIG.maxCapitalPerTrade),
-          limitOrderBuffer: Number(process.env.LIMIT_ORDER_BUFFER || DEFAULT_TRADING_CONFIG.limitOrderBuffer),
-          useLimitOrders: process.env.USE_LIMIT_ORDERS === 'true' ? true : DEFAULT_TRADING_CONFIG.useLimitOrders,
+        {
+          type: "coordinated-multi-strategy" as const,
+          enabled: isStrategyActive("coordinated-multi-strategy"),
+          weight: Number(process.env.COORDINATED_WEIGHT || 0.5),
+          parameters: {
+            // Elliott Wave settings
+            waveDetectionLength: Number(
+              process.env.COORDINATED_WAVE_DETECTION_LENGTH || 100,
+            ),
+            priceSensitivity: Number(
+              process.env.COORDINATED_PRICE_SENSITIVITY || 0.01,
+            ),
+
+            // Harmonic Pattern settings
+            detectionLength: Number(
+              process.env.COORDINATED_DETECTION_LENGTH || 200,
+            ),
+            fibRetracementTolerance: Number(
+              process.env.COORDINATED_FIB_RETRACEMENT_TOLERANCE || 0.02,
+            ),
+            patternConfirmationPercentage: Number(
+              process.env.COORDINATED_PATTERN_CONFIRMATION_PCT || 80,
+            ),
+
+            // Volume Analysis settings
+            volumeThreshold: Number(
+              process.env.COORDINATED_VOLUME_THRESHOLD || 1.5,
+            ),
+            volumeMALength: Number(
+              process.env.COORDINATED_VOLUME_MA_LENGTH || 20,
+            ),
+            priceMALength: Number(
+              process.env.COORDINATED_PRICE_MA_LENGTH || 10,
+            ),
+            volumeSpikeFactor: Number(
+              process.env.COORDINATED_VOLUME_SPIKE_FACTOR || 2.0,
+            ),
+
+            // Scalping settings
+            fastEmaPeriod: Number(
+              process.env.COORDINATED_FAST_EMA_PERIOD || 20,
+            ),
+            slowEmaPeriod: Number(
+              process.env.COORDINATED_SLOW_EMA_PERIOD || 50,
+            ),
+            rsiPeriod: Number(process.env.COORDINATED_RSI_PERIOD || 7),
+            momentumPeriod: Number(
+              process.env.COORDINATED_MOMENTUM_PERIOD || 10,
+            ),
+            maxHoldingPeriod: Number(
+              process.env.COORDINATED_MAX_HOLDING_PERIOD || 15,
+            ),
+            profitTargetPercent: Number(
+              process.env.COORDINATED_PROFIT_TARGET_PERCENT || 0.003,
+            ),
+            stopLossPercent: Number(
+              process.env.COORDINATED_STOP_LOSS_PERCENT || 0.002,
+            ),
+            rsiOverboughtLevel: Number(
+              process.env.COORDINATED_RSI_OVERBOUGHT_LEVEL || 70,
+            ),
+            rsiOversoldLevel: Number(
+              process.env.COORDINATED_RSI_OVERSOLD_LEVEL || 30,
+            ),
+            momentumThreshold: Number(
+              process.env.COORDINATED_MOMENTUM_THRESHOLD || 0.002,
+            ),
+            priceDeviationThreshold: Number(
+              process.env.COORDINATED_PRICE_DEVIATION_THRESHOLD || 0.001,
+            ),
+
+            // Coordination settings
+            trendConfidenceThreshold: Number(
+              process.env.COORDINATED_TREND_CONFIDENCE_THRESHOLD || 0.6,
+            ),
+            patternConfidenceThreshold: Number(
+              process.env.COORDINATED_PATTERN_CONFIDENCE_THRESHOLD || 0.5,
+            ),
+            volumeConfidenceThreshold: Number(
+              process.env.COORDINATED_VOLUME_CONFIDENCE_THRESHOLD || 0.4,
+            ),
+            overallConfidenceThreshold: Number(
+              process.env.COORDINATED_OVERALL_CONFIDENCE_THRESHOLD || 0.7,
+            ),
+
+            symbol: symbol.trim(),
+            positionSize: Number(process.env.COORDINATED_POSITION_SIZE || 0.01),
+            accountSize: Number(
+              process.env.DEFAULT_ACCOUNT_SIZE ||
+                DEFAULT_TRADING_CONFIG.defaultAccountSize,
+            ),
+            riskPerTrade: Number(
+              process.env.RISK_PER_TRADE || DEFAULT_TRADING_CONFIG.riskPerTrade,
+            ),
+            maxSlippagePercent: Number(
+              process.env.MAX_SLIPPAGE_PERCENT ||
+                DEFAULT_TRADING_CONFIG.maxSlippagePercent,
+            ),
+            minLiquidityRatio: Number(
+              process.env.MIN_LIQUIDITY_RATIO ||
+                DEFAULT_TRADING_CONFIG.minLiquidityRatio,
+            ),
+            maxCapitalPerTrade: Number(
+              process.env.MAX_CAPITAL_PER_TRADE ||
+                DEFAULT_TRADING_CONFIG.maxCapitalPerTrade,
+            ),
+            limitOrderBuffer: Number(
+              process.env.LIMIT_ORDER_BUFFER ||
+                DEFAULT_TRADING_CONFIG.limitOrderBuffer,
+            ),
+            useLimitOrders:
+              process.env.USE_LIMIT_ORDERS === "true"
+                ? true
+                : DEFAULT_TRADING_CONFIG.useLimitOrders,
+          },
         },
-      },
-    ]).flat(),
+      ])
+      .flat(),
     takeProfit: {
-      enabled: process.env.TAKE_PROFIT_ENABLED !== 'false' ? true : DEFAULT_TAKE_PROFIT_CONFIG.enabled,
+      enabled:
+        process.env.TAKE_PROFIT_ENABLED !== "false"
+          ? true
+          : DEFAULT_TAKE_PROFIT_CONFIG.enabled,
       profitTiers: [
         {
-          profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_1 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[0].profitPercentage),
-          closePercentage: Number(process.env.TAKE_PROFIT_SIZE_1 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[0].closePercentage),
+          profitPercentage: Number(
+            process.env.TAKE_PROFIT_LEVEL_1 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[0].profitPercentage,
+          ),
+          closePercentage: Number(
+            process.env.TAKE_PROFIT_SIZE_1 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[0].closePercentage,
+          ),
         },
         {
-          profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_2 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[1].profitPercentage),
-          closePercentage: Number(process.env.TAKE_PROFIT_SIZE_2 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[1].closePercentage),
+          profitPercentage: Number(
+            process.env.TAKE_PROFIT_LEVEL_2 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[1].profitPercentage,
+          ),
+          closePercentage: Number(
+            process.env.TAKE_PROFIT_SIZE_2 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[1].closePercentage,
+          ),
         },
         {
-          profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_3 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[2].profitPercentage),
-          closePercentage: Number(process.env.TAKE_PROFIT_SIZE_3 || DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[2].closePercentage),
+          profitPercentage: Number(
+            process.env.TAKE_PROFIT_LEVEL_3 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[2].profitPercentage,
+          ),
+          closePercentage: Number(
+            process.env.TAKE_PROFIT_SIZE_3 ||
+              DEFAULT_TAKE_PROFIT_CONFIG.profitTiers[2].closePercentage,
+          ),
         },
       ],
-      cooldownPeriod: Number(process.env.TAKE_PROFIT_COOLDOWN || DEFAULT_TAKE_PROFIT_CONFIG.cooldownPeriod),
-      trailingMode: process.env.TAKE_PROFIT_TRAILING === 'true' ? true : DEFAULT_TAKE_PROFIT_CONFIG.trailingMode,
+      cooldownPeriod: Number(
+        process.env.TAKE_PROFIT_COOLDOWN ||
+          DEFAULT_TAKE_PROFIT_CONFIG.cooldownPeriod,
+      ),
+      trailingMode:
+        process.env.TAKE_PROFIT_TRAILING === "true"
+          ? true
+          : DEFAULT_TAKE_PROFIT_CONFIG.trailingMode,
     },
     actors: {
       riskManager: {
-        maxOpenPositions: Number(process.env.MAX_OPEN_POSITIONS || DEFAULT_ACTORS_CONFIG.riskManager.maxOpenPositions),
-        maxDailyLoss: Number(process.env.MAX_DAILY_LOSS || DEFAULT_ACTORS_CONFIG.riskManager.dailyLossLimit / 100),
-        diversificationWeight: Number(process.env.DIVERSIFICATION_WEIGHT || 0.3),
-        volatilityAdjustment: process.env.VOLATILITY_ADJUSTMENT !== 'false',
+        maxOpenPositions: Number(
+          process.env.MAX_OPEN_POSITIONS ||
+            DEFAULT_ACTORS_CONFIG.riskManager.maxOpenPositions,
+        ),
+        maxDailyLoss: Number(
+          process.env.MAX_DAILY_LOSS ||
+            DEFAULT_ACTORS_CONFIG.riskManager.dailyLossLimit / 100,
+        ),
+        diversificationWeight: Number(
+          process.env.DIVERSIFICATION_WEIGHT || 0.3,
+        ),
+        volatilityAdjustment: process.env.VOLATILITY_ADJUSTMENT !== "false",
       },
       strategyManager: {
-        autoAdjustWeights: process.env.AUTO_ADJUST_WEIGHTS !== 'false' ? true : DEFAULT_ACTORS_CONFIG.strategyManager.autoAdjustWeights,
-        maxActiveStrategies: Number(process.env.MAX_ACTIVE_STRATEGIES || DEFAULT_ACTORS_CONFIG.strategyManager.maxActiveStrategies),
-        conflictResolutionMode: (process.env.CONFLICT_RESOLUTION_MODE || DEFAULT_ACTORS_CONFIG.strategyManager.conflictResolutionMode) as any,
-        optimizationEnabled: process.env.OPTIMIZATION_ENABLED !== 'false' ? true : DEFAULT_ACTORS_CONFIG.strategyManager.optimizationEnabled,
+        autoAdjustWeights:
+          process.env.AUTO_ADJUST_WEIGHTS !== "false"
+            ? true
+            : DEFAULT_ACTORS_CONFIG.strategyManager.autoAdjustWeights,
+        maxActiveStrategies: Number(
+          process.env.MAX_ACTIVE_STRATEGIES ||
+            DEFAULT_ACTORS_CONFIG.strategyManager.maxActiveStrategies,
+        ),
+        conflictResolutionMode: (process.env.CONFLICT_RESOLUTION_MODE ||
+          DEFAULT_ACTORS_CONFIG.strategyManager.conflictResolutionMode) as
+          | "weighted"
+          | "latest"
+          | "consensus"
+          | "priority",
+        optimizationEnabled:
+          process.env.OPTIMIZATION_ENABLED !== "false"
+            ? true
+            : DEFAULT_ACTORS_CONFIG.strategyManager.optimizationEnabled,
       },
       performanceTracker: {
-        historyLength: Number(process.env.PERFORMANCE_HISTORY_LENGTH || DEFAULT_ACTORS_CONFIG.performanceTracker.historyLength),
-        trackOpenPositions: process.env.TRACK_OPEN_POSITIONS !== 'false' ? true : DEFAULT_ACTORS_CONFIG.performanceTracker.trackOpenPositions,
-        realTimeUpdates: process.env.REAL_TIME_UPDATES !== 'false' ? true : DEFAULT_ACTORS_CONFIG.performanceTracker.realTimeUpdates,
-        calculationInterval: Number(process.env.CALCULATION_INTERVAL || DEFAULT_ACTORS_CONFIG.performanceTracker.calculationInterval),
+        historyLength: Number(
+          process.env.PERFORMANCE_HISTORY_LENGTH ||
+            DEFAULT_ACTORS_CONFIG.performanceTracker.historyLength,
+        ),
+        trackOpenPositions:
+          process.env.TRACK_OPEN_POSITIONS !== "false"
+            ? true
+            : DEFAULT_ACTORS_CONFIG.performanceTracker.trackOpenPositions,
+        realTimeUpdates:
+          process.env.REAL_TIME_UPDATES !== "false"
+            ? true
+            : DEFAULT_ACTORS_CONFIG.performanceTracker.realTimeUpdates,
+        calculationInterval: Number(
+          process.env.CALCULATION_INTERVAL ||
+            DEFAULT_ACTORS_CONFIG.performanceTracker.calculationInterval,
+        ),
       },
     },
     logging: {
-      level: (process.env.LOG_LEVEL || DEFAULT_LOGGING_CONFIG.level) as LogLevel,
-      fileOutput: process.env.LOG_TO_FILE === "true" ? true : DEFAULT_LOGGING_CONFIG.fileOutput,
-      logFilePath: process.env.LOG_FILE_PATH || DEFAULT_LOGGING_CONFIG.logFilePath,
-      maxFileSize: Number(process.env.LOG_MAX_FILE_SIZE || DEFAULT_LOGGING_CONFIG.maxFileSize),
-      maxFiles: Number(process.env.LOG_MAX_FILES || DEFAULT_LOGGING_CONFIG.maxFiles),
+      level: (process.env.LOG_LEVEL ||
+        DEFAULT_LOGGING_CONFIG.level) as LogLevel,
+      fileOutput:
+        process.env.LOG_TO_FILE === "true"
+          ? true
+          : DEFAULT_LOGGING_CONFIG.fileOutput,
+      logFilePath:
+        process.env.LOG_FILE_PATH || DEFAULT_LOGGING_CONFIG.logFilePath,
+      maxFileSize: Number(
+        process.env.LOG_MAX_FILE_SIZE || DEFAULT_LOGGING_CONFIG.maxFileSize,
+      ),
+      maxFiles: Number(
+        process.env.LOG_MAX_FILES || DEFAULT_LOGGING_CONFIG.maxFiles,
+      ),
     },
   };
 
@@ -403,6 +772,9 @@ export const validateConfig = (config: Partial<ConfigType>): ConfigType => {
 /**
  * Fusionne une configuration partielle avec la configuration par défaut
  */
-export const mergeConfig = (baseConfig: ConfigType, overrides: Partial<ConfigType>): ConfigType => {
+export const mergeConfig = (
+  baseConfig: ConfigType,
+  overrides: Partial<ConfigType>,
+): ConfigType => {
   return configSchema.parse({ ...baseConfig, ...overrides });
 };

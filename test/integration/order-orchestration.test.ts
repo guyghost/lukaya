@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, jest } from "bun:test";
 import {
   createMockContext,
   TestLogger,
@@ -15,22 +15,22 @@ import {
 
 // Mock imports - these would normally come from the actual implementation
 interface MockOrderService {
-  placeOrder: (params: OrderParams) => Promise<any>;
-  cancelOrder: (orderId: string) => Promise<void>;
-  getOrderStatus: (orderId: string) => Promise<any>;
+  placeOrder: () => Promise<unknown>;
+  cancelOrder: () => Promise<boolean>;
+  getOrderStatus: () => Promise<unknown>;
 }
 
 interface MockStrategyManager {
-  executeStrategy: (strategyId: string) => Promise<void>;
-  pauseStrategy: (strategyId: string) => Promise<void>;
-  resumeStrategy: (strategyId: string) => Promise<void>;
-  getStrategyHealth: (strategyId: string) => Promise<any>;
+  executeStrategy: () => Promise<unknown>;
+  pauseStrategy: () => Promise<void>;
+  resumeStrategy: () => Promise<void>;
+  getStrategyHealth: () => Promise<unknown>;
 }
 
 interface MockRiskManager {
-  validateOrder: (order: OrderParams) => Promise<boolean>;
-  checkPosition: (symbol: string) => Promise<any>;
-  calculateRisk: (order: OrderParams) => Promise<number>;
+  validateOrder: () => Promise<boolean>;
+  checkPosition: () => Promise<unknown>;
+  calculateRisk: () => Promise<number>;
 }
 
 describe("Order Orchestration Integration Tests", () => {
@@ -38,31 +38,34 @@ describe("Order Orchestration Integration Tests", () => {
   let mockStrategyManager: MockStrategyManager;
   let mockRiskManager: MockRiskManager;
   let testLogger: TestLogger;
-  let context: any;
+  let context: Record<string, unknown>;
 
   beforeEach(() => {
     testLogger = new TestLogger();
-    context = createMockContext("order-orchestrator");
+    context = createMockContext("order-orchestrator") as Record<
+      string,
+      unknown
+    >;
 
     // Setup mock services
     mockOrderService = {
-      placeOrder: mock().mockResolvedValue({
+      placeOrder: jest.fn().mockResolvedValue({
         id: generateOrderId(),
         status: OrderStatus.FILLED,
         filledSize: 0.001,
         avgFillPrice: 50000,
       }),
-      cancelOrder: mock().mockResolvedValue(undefined),
-      getOrderStatus: mock().mockResolvedValue({
+      cancelOrder: jest.fn().mockResolvedValue(undefined),
+      getOrderStatus: jest.fn().mockResolvedValue({
         status: OrderStatus.FILLED,
       }),
     };
 
     mockStrategyManager = {
-      executeStrategy: mock().mockResolvedValue(undefined),
-      pauseStrategy: mock().mockResolvedValue(undefined),
-      resumeStrategy: mock().mockResolvedValue(undefined),
-      getStrategyHealth: mock().mockResolvedValue({
+      executeStrategy: jest.fn().mockResolvedValue(undefined),
+      pauseStrategy: jest.fn().mockResolvedValue(undefined),
+      resumeStrategy: jest.fn().mockResolvedValue(undefined),
+      getStrategyHealth: jest.fn().mockResolvedValue({
         isHealthy: true,
         healthScore: 95,
         consecutiveErrors: 0,
@@ -70,13 +73,13 @@ describe("Order Orchestration Integration Tests", () => {
     };
 
     mockRiskManager = {
-      validateOrder: mock().mockResolvedValue(true),
-      checkPosition: mock().mockResolvedValue({
+      validateOrder: jest.fn().mockResolvedValue(true),
+      checkPosition: jest.fn().mockResolvedValue({
         size: 0,
         unrealizedPnl: 0,
         marginUsed: 0,
       }),
-      calculateRisk: mock().mockResolvedValue(0.05), // 5% risk
+      calculateRisk: jest.fn().mockResolvedValue(0.05), // 5% risk
     };
   });
 
@@ -258,7 +261,7 @@ describe("Order Orchestration Integration Tests", () => {
         await mockOrderService.placeOrder(orderParams);
         expect(true).toBe(false); // Should not reach here
       } catch (error) {
-        expect(error.message).toContain("Order is fully filled");
+        expect((error as Error).message).toContain("Order is fully filled");
 
         // Simulate creating synthetic order response
         const syntheticOrder = {

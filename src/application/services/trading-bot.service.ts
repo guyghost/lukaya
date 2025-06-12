@@ -7,15 +7,20 @@ import {
 import { createActorSystem } from "../../actor/system";
 import { MarketDataPort } from "../ports/market-data.port";
 import { TradingPort } from "../ports/trading.port";
-import { 
-  OrderSide, 
-  OrderParams, 
-  OrderType, 
+import {
+  OrderSide,
+  OrderParams,
+  OrderType,
   TimeInForce,
   Strategy,
-  MarketData, 
+  MarketData,
   Result,
-  StrategySignal // Added StrategySignal
+  StrategySignal,
+  RiskAssessmentResult,
+  PerformanceMetrics,
+  RejectedOrder,
+  CancelledOrder,
+  ExternalMarketData,
 } from "../../shared";
 import { Order, OrderStatus } from "../../domain/models/market.model";
 import {
@@ -34,7 +39,7 @@ import {
   PositionRisk,
   RiskManagerConfig,
   RiskLevel,
-  RiskManagerPort
+  RiskManagerPort,
 } from "../actors/risk-manager/risk-manager.model";
 import { StrategyManagerConfig } from "../actors/strategy-manager/strategy-manager.model";
 import { PerformanceTrackerConfig } from "../actors/performance-tracker/performance-tracker.model";
@@ -44,21 +49,48 @@ import { TakeProfitIntegratorConfig } from "../integrators/take-profit-integrato
 import { createOrderManagerActorDefinition } from "../actors/order-manager/order-manager.actor";
 import { OrderManagerConfig } from "../actors/order-manager/order-manager.model";
 
-type TradingBotMessage = 
+type TradingBotMessage =
   | { type: "START" }
   | { type: "STOP" }
   | { type: "ADD_STRATEGY"; strategy: Strategy }
   | { type: "REMOVE_STRATEGY"; strategyId: string }
   | { type: "MARKET_DATA"; data: MarketData }
   | { type: "ORDER_PLACED"; order: Order }
-  | { type: "ORDER_REJECTED"; order: OrderParams; reason: string; error?: any }
-  | { type: "ORDER_CANCELLED"; order: Order; reason: string; error?: any }
-  | { type: "RISK_ASSESSMENT_RESULT"; orderId: string; result: any }
-  | { type: "PERFORMANCE_UPDATE"; metrics: any }
+  | {
+      type: "ORDER_REJECTED";
+      order: OrderParams;
+      reason: string;
+      error?: Error;
+    }
+  | { type: "ORDER_CANCELLED"; order: Order; reason: string; error?: Error }
+  | {
+      type: "RISK_ASSESSMENT_RESULT";
+      orderId: string;
+      result: RiskAssessmentResult;
+    }
+  | { type: "PERFORMANCE_UPDATE"; metrics: PerformanceMetrics }
   | { type: "ANALYZE_POSITIONS" }
-  | { type: "POSITION_VIABILITY_RESULT"; symbol: string; isViable: boolean; reason: string; shouldClose: boolean; direction?: 'long' | 'short' | 'none'; size?: number }
-  | { type: "CONSOLIDATED_SIGNAL"; payload: { strategyId: string; signal: StrategySignal; marketData: MarketData }}
-  | { type: "REQUEST_MARKET_DATA"; payload: { symbol: string; strategyId: string; signal: StrategySignal } }
+  | {
+      type: "POSITION_VIABILITY_RESULT";
+      symbol: string;
+      isViable: boolean;
+      reason: string;
+      shouldClose: boolean;
+      direction?: "long" | "short" | "none";
+      size?: number;
+    }
+  | {
+      type: "CONSOLIDATED_SIGNAL";
+      payload: {
+        strategyId: string;
+        signal: StrategySignal;
+        marketData: MarketData;
+      };
+    }
+  | {
+      type: "REQUEST_MARKET_DATA";
+      payload: { symbol: string; strategyId: string; signal: StrategySignal };
+    }
   | { type: "RETRY_SIGNAL"; payload: { pendingSignalId: string } };
 
 // Définition d'un signal en attente pour le mécanisme de réessai
@@ -79,13 +111,16 @@ interface TradingBotState {
   marketActors: Map<string, ActorAddress>;
   strategyActors: Map<string, ActorAddress>; // Acteurs individuels pour chaque stratégie
   orderHistory: Order[];
-  rejectedOrders: { order: OrderParams; reason: string; error?: any }[];
-  cancelledOrders: { order: Order; reason: string; error?: any }[];
+  rejectedOrders: RejectedOrder[];
+  cancelledOrders: CancelledOrder[];
   riskManagerActor: ActorAddress | null;
   strategyManagerActor: ActorAddress | null;
   performanceTrackerActor: ActorAddress | null;
   orderManagerActor: ActorAddress | null;
-  positions: Record<string, { symbol: string; direction: 'long' | 'short' | 'none'; size: number }>;
+  positions: Record<
+    string,
+    { symbol: string; direction: "long" | "short" | "none"; size: number }
+  >;
   takeProfitIntegrator: ReturnType<typeof createTakeProfitIntegrator> | null;
   pendingSignals: Record<string, PendingSignal>; // Signaux en attente de traitement/réessai
   subscribedSymbols: Set<string>; // Symboles pour lesquels on est abonné aux données de marché
@@ -111,7 +146,7 @@ const checkBuyingPower = async (
   reason?: string;
   riskLevel: RiskLevel;
 }> => {
-  const logger = createContextualLogger('TradingBotService.checkBuyingPower');
+  const logger = createContextualLogger("TradingBotService.checkBuyingPower");
 
   try {
     const balances = await tradingPort.getAccountBalance();
@@ -184,34 +219,38 @@ const checkBuyingPower = async (
     // Maximum percentage of available funds to use for a single order
     const maxFundsPercentage = 0.3; // 30% of available funds max
     const maxOrderValue = availableUSDC * maxFundsPercentage;
-    
+
     // If this is a limit order, verify the price is reasonable
     if (order.type === OrderType.LIMIT && order.price) {
       // For buy limit orders, ensure price is not too high (more than 1% above market)
       if (order.price > currentPrice * 1.01) {
-        logger.warn(`Limit buy price ${order.price} is more than 1% above current price ${currentPrice}. Adjusting.`);
+        logger.warn(
+          `Limit buy price ${order.price} is more than 1% above current price ${currentPrice}. Adjusting.`,
+        );
         const adjustedPrice = Math.round(currentPrice * 1.005 * 100) / 100; // Buy 0.5% above market
         return {
           approved: true,
           adjustedPrice,
           reason: `Adjusted limit buy price from ${order.price} to ${adjustedPrice} (0.5% above market)`,
-          riskLevel: "MEDIUM"
+          riskLevel: "MEDIUM",
         };
       }
     }
-    
+
     // If order is too large, adjust to proportional size
     if (orderValue > maxOrderValue) {
       // Calculate proportional size
       const newSize = maxOrderValue / orderPrice;
       const adjustedSize = Math.floor(newSize * 10000) / 10000; // Round to 4 decimal places
-      
-      logger.warn(`Adjusting order size from ${order.size} to ${adjustedSize} to be proportional to buying power`);
-      return { 
-        approved: true, 
+
+      logger.warn(
+        `Adjusting order size from ${order.size} to ${adjustedSize} to be proportional to buying power`,
+      );
+      return {
+        approved: true,
         adjustedSize,
         reason: `Order size adjusted to be proportional (${(maxFundsPercentage * 100).toFixed(0)}%) to available funds. Using $${(adjustedSize * orderPrice).toFixed(2)} of $${availableUSDC.toFixed(2)} available`,
-        riskLevel: "MEDIUM"
+        riskLevel: "MEDIUM",
       };
     }
 
@@ -270,7 +309,7 @@ export const createTradingBotService = (
     takeProfitIntegratorConfig: {} as Partial<TakeProfitIntegratorConfig>,
   },
 ): TradingBotService => {
-  const logger = createContextualLogger('TradingBotService');
+  const logger = createContextualLogger("TradingBotService");
   const actorSystem = createActorSystem();
   let tradingBotActorAddress: ActorAddress | null = null;
 
@@ -289,53 +328,55 @@ export const createTradingBotService = (
     positions: {},
     takeProfitIntegrator: null,
     pendingSignals: {},
-    subscribedSymbols: new Set<string>()
+    subscribedSymbols: new Set<string>(),
   };
 
   // Helper function to close a position
   const closePosition = async (
     symbol: string,
-    direction: 'long' | 'short' | 'none',
+    direction: "long" | "short" | "none",
     size: number,
     marketDataPort: MarketDataPort,
     tradingPort: TradingPort,
     reason: string,
-    context: ActorContext<TradingBotState>
+    context: ActorContext<TradingBotState>,
   ): Promise<boolean> => {
-    const logger = createContextualLogger('TradingBotService.closePosition');
+    const logger = createContextualLogger("TradingBotService.closePosition");
     try {
       // Get current price for this symbol
       const marketData = await marketDataPort.getLatestMarketData(symbol);
-      
+
       // Determine which side to use for closing the position
       // If position is long, we need to SELL to close it
       // If position is short, we need to BUY to close it
-      const closeSide = direction === 'long' ? OrderSide.SELL : OrderSide.BUY;
-      
+      const closeSide = direction === "long" ? OrderSide.SELL : OrderSide.BUY;
+
       // Create a market order for immediate execution
       // No need to calculate prices, as market orders execute at the best available price
-      
+
       // Create close order as market order
       const closeOrder: OrderParams = {
         symbol,
         side: closeSide,
         type: OrderType.MARKET,
         size: size,
-        reduceOnly: true // Ensure this only closes the position
+        reduceOnly: true, // Ensure this only closes the position
       };
-      
-      logger.info(`Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`);
-      
+
+      logger.info(
+        `Created close order for position ${symbol}: ${JSON.stringify(closeOrder)}`,
+      );
+
       // Place the order
       const placedOrder = await tradingPort.placeOrder(closeOrder);
       logger.info(`Close order placed: ${placedOrder.id}, Reason: ${reason}`);
-      
+
       // Update order history
       context.send(context.self, {
         type: "ORDER_PLACED",
-        order: placedOrder
+        order: placedOrder,
       });
-      
+
       return true;
     } catch (error) {
       logger.error(`Error closing position ${symbol}:`, error as Error);
@@ -347,7 +388,7 @@ export const createTradingBotService = (
   const tradingBotBehavior = async (
     state: TradingBotState,
     message: ActorMessage<TradingBotMessage>,
-    context: ActorContext<TradingBotState>
+    context: ActorContext<TradingBotState>,
   ) => {
     const payload = message.payload;
 
@@ -357,7 +398,7 @@ export const createTradingBotService = (
 
         // Create risk manager if not exists
         let riskManagerActor = state.riskManagerActor;
-        
+
         if (!riskManagerActor) {
           const riskManagerDefinition = createRiskManagerActorDefinition(
             tradingPort,
@@ -378,31 +419,41 @@ export const createTradingBotService = (
           );
           logger.info("Created strategy manager actor");
           state.strategyManagerActor = strategyManagerActor;
-          
+
           // Créer les acteurs de stratégie pour les stratégies qui ont été ajoutées avant
           // l'initialisation du gestionnaire de stratégies
           for (const strategy of state.strategyService.getAllStrategies()) {
             try {
               const strategyId = strategy.getId();
               if (!state.strategyActors.has(strategyId)) {
-                logger.info(`Creating previously pending strategy actor for: ${strategyId}`);
-                
+                logger.info(
+                  `Creating previously pending strategy actor for: ${strategyId}`,
+                );
+
                 // D'abord, enregistrer explicitement la stratégie auprès du gestionnaire de stratégies
                 actorSystem.send(strategyManagerActor, {
                   type: "REGISTER_STRATEGY",
                   strategy: strategy,
-                  markets: [(strategy.getConfig().parameters as Record<string, string>).symbol]
+                  markets: [
+                    (strategy.getConfig().parameters as Record<string, string>)
+                      .symbol,
+                  ],
                 });
-                logger.info(`Strategy ${strategyId} registered with StrategyManager (delayed registration)`);
-                
+                logger.info(
+                  `Strategy ${strategyId} registered with StrategyManager (delayed registration)`,
+                );
+
                 const strategyActorDef = createStrategyActorDefinition(
                   strategy,
-                  strategyManagerActor
+                  strategyManagerActor,
                 );
-                
-                const strategyActorAddress = actorSystem.createActor(strategyActorDef);
+
+                const strategyActorAddress =
+                  actorSystem.createActor(strategyActorDef);
                 state.strategyActors.set(strategyId, strategyActorAddress);
-                logger.debug(`Created strategy actor for previously pending strategy: ${strategyId}`);
+                logger.debug(
+                  `Created strategy actor for previously pending strategy: ${strategyId}`,
+                );
               }
             } catch (error) {
               logger.error(`Error creating strategy actor:`, error as Error);
@@ -421,72 +472,72 @@ export const createTradingBotService = (
           );
           logger.info("Created performance tracker actor");
         }
-        
+
         // Create order manager if not exists
         let orderManagerActor = state.orderManagerActor;
         if (!orderManagerActor) {
           const orderManagerConfig: Partial<OrderManagerConfig> = {
-            orderTimeout: 30000,           // 30 secondes
+            orderTimeout: 30000, // 30 secondes
             maxRetryAttempts: 3,
-            retryDelay: 1000,              // 1 seconde
+            retryDelay: 1000, // 1 seconde
             maxOrderHistorySize: 1000,
-            orderRateLimit: 60             // 60 ordres par minute
+            orderRateLimit: 60, // 60 ordres par minute
           };
-          
+
           const orderManagerDefinition = createOrderManagerActorDefinition(
             tradingPort,
-            orderManagerConfig
+            orderManagerConfig,
           );
           orderManagerActor = actorSystem.createActor(orderManagerDefinition);
           logger.info("Created order manager actor");
           state.orderManagerActor = orderManagerActor;
-          
+
           // Enregistrer l'OrderManager auprès du RiskManager
           if (riskManagerActor) {
             actorSystem.send(riskManagerActor, {
               type: "REGISTER_ORDER_MANAGER",
-              orderManagerAddress: orderManagerActor
+              orderManagerAddress: orderManagerActor,
             });
             logger.info("OrderManager enregistré auprès du RiskManager");
           }
-          
+
           // Enregistrer le RiskManager auprès de l'OrderManager
           if (riskManagerActor) {
             actorSystem.send(orderManagerActor, {
               type: "REGISTER_RISK_MANAGER",
-              riskManagerAddress: riskManagerActor
+              riskManagerAddress: riskManagerActor,
             });
             logger.info("RiskManager enregistré auprès de l'OrderManager");
           }
-          
+
           // Enregistrer le TradingBot auprès de l'OrderManager
           actorSystem.send(orderManagerActor, {
             type: "REGISTER_TRADING_BOT",
-            tradingBotAddress: context.self
+            tradingBotAddress: context.self,
           });
           logger.info("TradingBot enregistré auprès de l'OrderManager");
         }
-        
+
         // Initialize take profit integrator
         if (!state.takeProfitIntegrator && state.riskManagerActor) {
           // Créer un adaptateur pour RiskManagerPort à partir de l'acteur
           const riskManagerPort: RiskManagerPort = {
             assessOrderRisk: async (order, accountRisk) => {
               // Simple implementation for now
-              return { approved: true, riskLevel: 'LOW' };
+              return { approved: true, riskLevel: "LOW" };
             },
             getAccountRisk: async () => {
               // Default implementation
-              return { 
-                totalValue: 10000, 
-                availableBalance: 10000, 
-                positions: [], 
-                totalRisk: 0, 
-                maxDrawdown: 0, 
-                maxDrawdownPercent: 0, 
-                maxPositionSize: 2000, 
-                currentRiskLevel: 'LOW' as const, 
-                leverageUsed: 0 
+              return {
+                totalValue: 10000,
+                availableBalance: 10000,
+                positions: [],
+                totalRisk: 0,
+                maxDrawdown: 0,
+                maxDrawdownPercent: 0,
+                maxPositionSize: 2000,
+                currentRiskLevel: "LOW" as const,
+                leverageUsed: 0,
               };
             },
             getPositionRisk: async (symbol) => null,
@@ -497,63 +548,84 @@ export const createTradingBotService = (
               isViable: true,
               reason: "Default",
               recommendation: "Default",
-              riskLevel: 'LOW' as const,
-              shouldClose: false
+              riskLevel: "LOW" as const,
+              shouldClose: false,
             }),
-            analyzeAllOpenPositions: async () => ({})
+            analyzeAllOpenPositions: async () => ({}),
           };
-          
+
           // Préparer la configuration pour la règle 3-5-7 depuis les variables d'environnement
           const takeProfitConfig = {
-            enabled: process.env.TAKE_PROFIT_RULE_ENABLED === 'true',
+            enabled: process.env.TAKE_PROFIT_RULE_ENABLED === "true",
             profitTiers: [
-              { 
-                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_1 || 3), 
-                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_1 || 30) 
+              {
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_1 || 3),
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_1 || 30),
               },
-              { 
-                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_2 || 5), 
-                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_2 || 30) 
+              {
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_2 || 5),
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_2 || 30),
               },
-              { 
-                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_3 || 7), 
-                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_3 || 100) 
+              {
+                profitPercentage: Number(process.env.TAKE_PROFIT_LEVEL_3 || 7),
+                closePercentage: Number(process.env.TAKE_PROFIT_SIZE_3 || 100),
               },
             ],
-            trailingMode: process.env.TAKE_PROFIT_TRAILING === 'true',
+            trailingMode: process.env.TAKE_PROFIT_TRAILING === "true",
             cooldownPeriod: Number(process.env.TAKE_PROFIT_COOLDOWN || 300000), // 5 minutes par défaut
           };
 
           // Validation des niveaux de profit
           const validationErrors = [];
-          if (takeProfitConfig.profitTiers[0].profitPercentage >= takeProfitConfig.profitTiers[1].profitPercentage) {
-            validationErrors.push('TAKE_PROFIT_LEVEL_1 doit être inférieur à TAKE_PROFIT_LEVEL_2');
+          if (
+            takeProfitConfig.profitTiers[0].profitPercentage >=
+            takeProfitConfig.profitTiers[1].profitPercentage
+          ) {
+            validationErrors.push(
+              "TAKE_PROFIT_LEVEL_1 doit être inférieur à TAKE_PROFIT_LEVEL_2",
+            );
           }
-          if (takeProfitConfig.profitTiers[1].profitPercentage >= takeProfitConfig.profitTiers[2].profitPercentage) {
-            validationErrors.push('TAKE_PROFIT_LEVEL_2 doit être inférieur à TAKE_PROFIT_LEVEL_3');
+          if (
+            takeProfitConfig.profitTiers[1].profitPercentage >=
+            takeProfitConfig.profitTiers[2].profitPercentage
+          ) {
+            validationErrors.push(
+              "TAKE_PROFIT_LEVEL_2 doit être inférieur à TAKE_PROFIT_LEVEL_3",
+            );
           }
-          
+
           // Validation des tailles de fermeture
           const totalClosePercentage = takeProfitConfig.profitTiers.reduce(
-            (total, tier) => total + tier.closePercentage, 0
+            (total, tier) => total + tier.closePercentage,
+            0,
           );
-          
+
           if (totalClosePercentage < 100) {
-            logger.warn(`Sum of closure percentages (${totalClosePercentage}%) is less than 100%. The position will not be fully closed.`);
+            logger.warn(
+              `Sum of closure percentages (${totalClosePercentage}%) is less than 100%. The position will not be fully closed.`,
+            );
           } else if (totalClosePercentage > 100) {
-            logger.warn(`Sum of closure percentages (${totalClosePercentage}%) exceeds 100%. Adjusting proportionally.`);
+            logger.warn(
+              `Sum of closure percentages (${totalClosePercentage}%) exceeds 100%. Adjusting proportionally.`,
+            );
             // Adjust percentages proportionally
             const ratio = 100 / totalClosePercentage;
-            takeProfitConfig.profitTiers.forEach(tier => {
+            takeProfitConfig.profitTiers.forEach((tier) => {
               tier.closePercentage = Math.round(tier.closePercentage * ratio);
             });
-            logger.info(`Adjusted closure percentages: ${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%`);
+            logger.info(
+              `Adjusted closure percentages: ${takeProfitConfig.profitTiers.map((t) => t.closePercentage).join("%, ")}%`,
+            );
           }
-          
+
           if (validationErrors.length > 0) {
-            logger.error(`Erreurs de configuration de la règle 3-5-7: ${validationErrors.join(', ')}`);
+            logger.error(
+              `Erreurs de configuration de la règle 3-5-7: ${validationErrors.join(", ")}`,
+            );
           } else {
-            logger.info(`Configuration de la règle 3-5-7: niveaux [${takeProfitConfig.profitTiers.map(t => t.profitPercentage).join('%, ')}%], fermetures [${takeProfitConfig.profitTiers.map(t => t.closePercentage).join('%, ')}%]`);
+            logger.info(
+              `Configuration de la règle 3-5-7: niveaux [${takeProfitConfig.profitTiers.map((t) => t.profitPercentage).join("%, ")}%], fermetures [${takeProfitConfig.profitTiers.map((t) => t.closePercentage).join("%, ")}%]`,
+            );
           }
 
           state.takeProfitIntegrator = createTakeProfitIntegrator(
@@ -561,21 +633,25 @@ export const createTradingBotService = (
             tradingPort,
             marketDataPort,
             riskManagerPort,
-            { 
+            {
               watchedSymbols: Array.from(state.marketActors.keys()),
-              ...options.takeProfitIntegratorConfig
-            }
+              ...options.takeProfitIntegratorConfig,
+            },
           );
           state.takeProfitIntegrator.start();
-          
+
           // Configurer le gestionnaire de prise de profit avec la règle 3-5-7
-          state.takeProfitIntegrator.takeProfitManager.updateConfig(takeProfitConfig);
-          
+          state.takeProfitIntegrator.takeProfitManager.updateConfig(
+            takeProfitConfig,
+          );
+
           // Configurer le gestionnaire de prise de profit si nécessaire
           if (options.takeProfitConfig) {
-            state.takeProfitIntegrator.takeProfitManager.updateConfig(options.takeProfitConfig);
+            state.takeProfitIntegrator.takeProfitManager.updateConfig(
+              options.takeProfitConfig,
+            );
           }
-          
+
           logger.info("Take profit manager initialized and started");
         }
 
@@ -602,17 +678,23 @@ export const createTradingBotService = (
         for (const [symbol, actorAddress] of state.marketActors.entries()) {
           actorSystem.send(actorAddress, { type: "UNSUBSCRIBE" });
         }
-        
+
         // Arrêter tous les acteurs de stratégie
-        for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
+        for (const [
+          strategyId,
+          actorAddress,
+        ] of state.strategyActors.entries()) {
           logger.debug(`Stopping strategy actor for: ${strategyId}`);
           try {
             actorSystem.stop(actorAddress);
           } catch (error) {
-            logger.error(`Error stopping strategy actor: ${strategyId}`, error as Error);
+            logger.error(
+              `Error stopping strategy actor: ${strategyId}`,
+              error as Error,
+            );
           }
         }
-        
+
         // Arrêter le gestionnaire de prise de profits
         if (state.takeProfitIntegrator) {
           state.takeProfitIntegrator.stop();
@@ -638,31 +720,50 @@ export const createTradingBotService = (
           // Initialize strategy with historical data before setting up market data
           try {
             if (strategy.initializeWithHistory) {
-              logger.info(`Fetching historical data for strategy: ${strategy.getName()}`);
-              
+              logger.info(
+                `Fetching historical data for strategy: ${strategy.getName()}`,
+              );
+
               // Calculate required historical data points based on strategy type
               let historicalLimit = 100; // Default for most strategies
-              
+
               // For coordinated multi-strategy, we need more data
-              if (strategy.getName().includes('Coordinated Multi-Strategy')) {
+              if (strategy.getName().includes("Coordinated Multi-Strategy")) {
                 historicalLimit = 250; // Extra buffer for coordinated strategy analysis
-                logger.debug(`Using extended historical data limit (${historicalLimit}) for coordinated multi-strategy`);
+                logger.debug(
+                  `Using extended historical data limit (${historicalLimit}) for coordinated multi-strategy`,
+                );
               }
-              
-              const historicalData = await marketDataPort.getHistoricalMarketData(symbol, historicalLimit);
-              
+
+              const historicalData =
+                await marketDataPort.getHistoricalMarketData(
+                  symbol,
+                  historicalLimit,
+                );
+
               if (historicalData && historicalData.length > 0) {
-                logger.info(`Initializing strategy ${strategy.getName()} with ${historicalData.length} historical data points`);
+                logger.info(
+                  `Initializing strategy ${strategy.getName()} with ${historicalData.length} historical data points`,
+                );
                 await strategy.initializeWithHistory(historicalData);
-                logger.info(`Strategy ${strategy.getName()} successfully initialized with historical data`);
+                logger.info(
+                  `Strategy ${strategy.getName()} successfully initialized with historical data`,
+                );
               } else {
-                logger.warn(`No historical data available for ${symbol}, strategy will start with real-time data only`);
+                logger.warn(
+                  `No historical data available for ${symbol}, strategy will start with real-time data only`,
+                );
               }
             } else {
-              logger.debug(`Strategy ${strategy.getName()} does not support historical initialization`);
+              logger.debug(
+                `Strategy ${strategy.getName()} does not support historical initialization`,
+              );
             }
           } catch (error) {
-            logger.error(`Failed to initialize strategy ${strategy.getName()} with historical data:`, error as Error);
+            logger.error(
+              `Failed to initialize strategy ${strategy.getName()} with historical data:`,
+              error as Error,
+            );
             logger.warn(`Strategy will continue with real-time data only`);
           }
 
@@ -696,38 +797,48 @@ export const createTradingBotService = (
             logger.debug(`Using existing market actor for symbol: ${symbol}`);
           }
         }
-        
+
         // Créer un acteur de stratégie pour cette stratégie
         try {
           const strategyId = strategy.getId();
           logger.info(`Creating dedicated actor for strategy: ${strategyId}`);
-          
+
           if (state.strategyManagerActor) {
             // D'abord, enregistrer explicitement la stratégie auprès du gestionnaire de stratégies
             actorSystem.send(state.strategyManagerActor, {
               type: "REGISTER_STRATEGY",
               strategy: strategy,
-              markets: [(strategy.getConfig().parameters as Record<string, string>).symbol]
+              markets: [
+                (strategy.getConfig().parameters as Record<string, string>)
+                  .symbol,
+              ],
             });
-            logger.info(`Strategy ${strategyId} registered with StrategyManager`);
-            
+            logger.info(
+              `Strategy ${strategyId} registered with StrategyManager`,
+            );
+
             // Créer l'acteur de stratégie qui va communiquer avec le Strategy Manager
             const strategyActorDef = createStrategyActorDefinition(
               strategy,
-              state.strategyManagerActor
+              state.strategyManagerActor,
             );
-            
-            const strategyActorAddress = actorSystem.createActor(strategyActorDef);
-            
+
+            const strategyActorAddress =
+              actorSystem.createActor(strategyActorDef);
+
             // Stocker la référence de l'acteur de stratégie
             state.strategyActors.set(strategyId, strategyActorAddress);
-            
+
             logger.debug(`Created strategy actor for strategy: ${strategyId}`);
           } else {
-            logger.warn(`Strategy manager not initialized yet, will create strategy actor later for: ${strategyId}`);
+            logger.warn(
+              `Strategy manager not initialized yet, will create strategy actor later for: ${strategyId}`,
+            );
           }
         } catch (error) {
-          logger.error(`Error creating strategy actor: ${error instanceof Error ? error.message : String(error)}`);
+          logger.error(
+            `Error creating strategy actor: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
 
         return { state };
@@ -747,17 +858,20 @@ export const createTradingBotService = (
         if (state.strategyActors.has(strategyId)) {
           const strategyActorAddress = state.strategyActors.get(strategyId)!;
           logger.debug(`Stopping strategy actor for: ${strategyId}`);
-          
+
           try {
             // Arrêter l'acteur de stratégie
             actorSystem.stop(strategyActorAddress);
-            
+
             // Supprimer de notre map
             state.strategyActors.delete(strategyId);
-            
+
             logger.debug(`Removed strategy actor for: ${strategyId}`);
           } catch (error) {
-            logger.error(`Error stopping strategy actor: ${strategyId}`, error as Error);
+            logger.error(
+              `Error stopping strategy actor: ${strategyId}`,
+              error as Error,
+            );
           }
         }
 
@@ -766,11 +880,16 @@ export const createTradingBotService = (
           try {
             actorSystem.send(state.strategyManagerActor, {
               type: "UNREGISTER_STRATEGY",
-              strategyId
+              strategyId,
             });
-            logger.info(`Strategy ${strategyId} unregistered from StrategyManager`);
+            logger.info(
+              `Strategy ${strategyId} unregistered from StrategyManager`,
+            );
           } catch (error) {
-            logger.error(`Error unregistering strategy from StrategyManager: ${strategyId}`, error as Error);
+            logger.error(
+              `Error unregistering strategy from StrategyManager: ${strategyId}`,
+              error as Error,
+            );
           }
         }
 
@@ -816,17 +935,22 @@ export const createTradingBotService = (
         );
 
         // Envoyer les données de marché à tous les acteurs de stratégie concernés
-        for (const [strategyId, actorAddress] of state.strategyActors.entries()) {
+        for (const [
+          strategyId,
+          actorAddress,
+        ] of state.strategyActors.entries()) {
           const strategy = state.strategyService.getStrategy(strategyId);
           if (!strategy) continue;
-          
-          const strategySymbol = (strategy.getConfig().parameters as Record<string, string>).symbol;
-          
+
+          const strategySymbol = (
+            strategy.getConfig().parameters as Record<string, string>
+          ).symbol;
+
           if (strategySymbol === data.symbol) {
             actorSystem.send(actorAddress, {
               type: "PROCESS_MARKET_DATA",
               data,
-              tradingBotActorAddress: context.self // Pass TradingBotActor's address
+              tradingBotActorAddress: context.self, // Pass TradingBotActor's address
             });
           }
         }
@@ -839,12 +963,12 @@ export const createTradingBotService = (
             price: data.price,
           });
         }
-        
+
         // Mettre à jour le gestionnaire de prise de profit
         if (state.takeProfitIntegrator && state.positions[data.symbol]) {
           state.takeProfitIntegrator.takeProfitManager.analyzePosition(
             data.symbol,
-            data.price
+            data.price,
           );
         }
 
@@ -858,14 +982,15 @@ export const createTradingBotService = (
           });
         }
 
-
-
         return { state };
       }
 
-      case "CONSOLIDATED_SIGNAL": { // New case to handle consolidated signals
+      case "CONSOLIDATED_SIGNAL": {
+        // New case to handle consolidated signals
         if (!state.isRunning) {
-          logger.debug(`Consolidated signal received but bot is not running`, { strategyId: payload.payload.strategyId });
+          logger.debug(`Consolidated signal received but bot is not running`, {
+            strategyId: payload.payload.strategyId,
+          });
           return { state };
         }
 
@@ -874,22 +999,25 @@ export const createTradingBotService = (
         logger.info(
           `Received consolidated signal from ${strategyId}: ${signal.type} ${signal.direction} @ ${signal.price || marketData.price}`,
         );
-        
+
         // DEBUG: Add comprehensive logging for signal analysis
-        logger.info(`🔍 [DEBUG SIGNAL] Signal received from strategy ${strategyId}:`, {
-          signalType: signal.type,
-          signalDirection: signal.direction,
-          signalPrice: signal.price,
-          signalReason: signal.reason,
-          marketPrice: marketData.price,
-          symbol: marketData.symbol
-        });
-        
+        logger.info(
+          `🔍 [DEBUG SIGNAL] Signal received from strategy ${strategyId}:`,
+          {
+            signalType: signal.type,
+            signalDirection: signal.direction,
+            signalPrice: signal.price,
+            signalReason: signal.reason,
+            marketPrice: marketData.price,
+            symbol: marketData.symbol,
+          },
+        );
+
         logger.debug(`Consolidated signal details`, {
           strategyId,
           signal: JSON.stringify(signal),
           marketData: JSON.stringify(marketData),
-          source: "TradingBotService"
+          source: "TradingBotService",
         });
 
         const order = state.strategyService.generateOrder(
@@ -899,27 +1027,32 @@ export const createTradingBotService = (
         );
 
         // DEBUG: Add comprehensive logging for order generation
-        logger.info(`🔍 [DEBUG ORDER] Order generation result for strategy ${strategyId}:`, {
-          orderGenerated: !!order,
-          signal: {
-            type: signal.type,
-            direction: signal.direction,
-            price: signal.price
+        logger.info(
+          `🔍 [DEBUG ORDER] Order generation result for strategy ${strategyId}:`,
+          {
+            orderGenerated: !!order,
+            signal: {
+              type: signal.type,
+              direction: signal.direction,
+              price: signal.price,
+            },
+            order: order
+              ? {
+                  symbol: order.symbol,
+                  side: order.side,
+                  size: order.size,
+                  price: order.price,
+                  type: order.type,
+                }
+              : null,
           },
-          order: order ? {
-            symbol: order.symbol,
-            side: order.side,
-            size: order.size,
-            price: order.price,
-            type: order.type
-          } : null
-        });
+        );
 
         logger.debug(`Order generation result`, {
           strategyId,
           orderGenerated: !!order,
           order: order ? JSON.stringify(order) : null,
-          source: "TradingBotService"
+          source: "TradingBotService",
         });
 
         if (order) {
@@ -930,7 +1063,7 @@ export const createTradingBotService = (
               size: order.size,
               price: order.price,
               type: order.type,
-              source: "TradingBotService"
+              source: "TradingBotService",
             });
 
             let adjustedOrder = { ...order };
@@ -947,12 +1080,14 @@ export const createTradingBotService = (
               adjustedSize: buyingPowerResult.adjustedSize,
               adjustedPrice: buyingPowerResult.adjustedPrice,
               riskLevel: buyingPowerResult.riskLevel,
-              source: "TradingBotService"
+              source: "TradingBotService",
             });
 
             if (!buyingPowerResult.approved) {
-              logger.warn(`Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`);
-              
+              logger.warn(
+                `Order rejected for ${order.symbol}: ${buyingPowerResult.reason}`,
+              );
+
               // Sauvegarder le signal pour un réessai ultérieur
               const pendingSignalId = `${strategyId}_${signal.type}_${signal.direction}_${Date.now()}`;
               const pendingSignal: PendingSignal = {
@@ -963,53 +1098,64 @@ export const createTradingBotService = (
                 timestamp: Date.now(),
                 attempts: 1,
                 lastAttempt: Date.now(),
-                reason: buyingPowerResult.reason || "Rejected by buying power check"
+                reason:
+                  buyingPowerResult.reason || "Rejected by buying power check",
               };
-              
+
               // Ajouter aux signaux en attente
               const updatedPendingSignals = {
                 ...state.pendingSignals,
-                [pendingSignalId]: pendingSignal
+                [pendingSignalId]: pendingSignal,
               };
-              
+
               // Planifier un réessai dans 5 minutes
-              setTimeout(() => {
-                context.send(context.self, {
-                  type: "RETRY_SIGNAL",
-                  payload: { pendingSignalId }
-                });
-              }, 5 * 60 * 1000); // 5 minutes
-              
+              setTimeout(
+                () => {
+                  context.send(context.self, {
+                    type: "RETRY_SIGNAL",
+                    payload: { pendingSignalId },
+                  });
+                },
+                5 * 60 * 1000,
+              ); // 5 minutes
+
               context.send(context.self, {
                 type: "ORDER_REJECTED",
                 order,
                 reason: buyingPowerResult.reason || "Insufficient buying power",
               });
-              
+
               return {
                 state: {
                   ...state,
-                  pendingSignals: updatedPendingSignals
-                }
+                  pendingSignals: updatedPendingSignals,
+                },
               };
             }
 
-            if (buyingPowerResult.adjustedSize || buyingPowerResult.adjustedPrice) {
+            if (
+              buyingPowerResult.adjustedSize ||
+              buyingPowerResult.adjustedPrice
+            ) {
               adjustedOrder = {
                 ...adjustedOrder,
-                ...(buyingPowerResult.adjustedSize && { size: buyingPowerResult.adjustedSize }),
-                ...(buyingPowerResult.adjustedPrice && { price: buyingPowerResult.adjustedPrice })
+                ...(buyingPowerResult.adjustedSize && {
+                  size: buyingPowerResult.adjustedSize,
+                }),
+                ...(buyingPowerResult.adjustedPrice && {
+                  price: buyingPowerResult.adjustedPrice,
+                }),
               };
-              
+
               logger.debug(`Order adjusted`, {
                 originalSize: order.size,
                 adjustedSize: adjustedOrder.size,
                 originalPrice: order.price,
                 adjustedPrice: adjustedOrder.price,
                 reason: buyingPowerResult.reason,
-                source: "TradingBotService"
+                source: "TradingBotService",
               });
-              
+
               if (buyingPowerResult.adjustedSize) {
                 logger.warn(
                   `Order size adjusted to ${adjustedOrder.size} ${order.symbol.split("-")[0]}: ${buyingPowerResult.reason}`,
@@ -1038,7 +1184,7 @@ export const createTradingBotService = (
               price: adjustedOrder.price,
               type: adjustedOrder.type,
               timeInForce: adjustedOrder.timeInForce,
-              source: "TradingBotService"
+              source: "TradingBotService",
             });
 
             if (adjustedOrder.type === OrderType.LIMIT && adjustedOrder.price) {
@@ -1046,7 +1192,7 @@ export const createTradingBotService = (
               const priceDiff = Math.abs(adjustedOrder.price - currentPrice);
               const priceDiffPercent = (priceDiff / currentPrice) * 100;
               logger.info(
-                `Placing LIMIT order at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? 'above' : 'below'} current price of ${currentPrice})`,
+                `Placing LIMIT order at ${adjustedOrder.price} USD (${priceDiffPercent.toFixed(4)}% ${adjustedOrder.price > currentPrice ? "above" : "below"} current price of ${currentPrice})`,
               );
             }
 
@@ -1067,11 +1213,11 @@ export const createTradingBotService = (
                 size: adjustedOrder.size,
                 price: adjustedOrder.price,
                 type: adjustedOrder.type,
-                source: "TradingBotService"
+                source: "TradingBotService",
               });
-              
+
               const strategyId = payload.payload.strategyId;
-              
+
               // Préparer la requête d'ordre
               actorSystem.send(state.orderManagerActor, {
                 type: "PLACE_ORDER",
@@ -1081,29 +1227,32 @@ export const createTradingBotService = (
                   requestTimestamp: Date.now(),
                   replyToAddress: context.self,
                   attempts: 0,
-                  requestId: `req_${Date.now()}_${strategyId}`
-                }
+                  requestId: `req_${Date.now()}_${strategyId}`,
+                },
               });
-              
+
               // L'ordre sera traité de manière asynchrone, et nous recevrons une notification via ORDER_PLACED ou ORDER_REJECTED
               return { state };
             } else {
               // Fallback: placer l'ordre directement si l'OrderManager n'est pas disponible
-              logger.warn("OrderManager n'est pas disponible, placement direct de l'ordre");
-              
+              logger.warn(
+                "OrderManager n'est pas disponible, placement direct de l'ordre",
+              );
+
               const placedOrder = await tradingPort.placeOrder(adjustedOrder);
-              const orderTypeStr = adjustedOrder.type === OrderType.LIMIT ? 'LIMIT' : 'MARKET';
+              const orderTypeStr =
+                adjustedOrder.type === OrderType.LIMIT ? "LIMIT" : "MARKET";
               logger.info(
                 `${orderTypeStr} order placed: ${placedOrder.id} for ${order.symbol}, ${order.side} ${adjustedOrder.size} @ ${adjustedOrder.price || marketData.price} USD`,
               );
-              
+
               if (adjustedOrder.side === OrderSide.BUY) {
                 logger.info(
                   `Total order value: $${(adjustedOrder.size * (adjustedOrder.price || marketData.price)).toFixed(2)} USD`,
                 );
                 if (adjustedOrder.type === OrderType.LIMIT) {
                   logger.info(
-                    `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || 'GOOD_TIL_CANCEL'})`,
+                    `Order will be filled when price reaches ${adjustedOrder.price} USD (timeInForce: ${adjustedOrder.timeInForce || "GOOD_TIL_CANCEL"})`,
                   );
                 }
               }
@@ -1113,13 +1262,16 @@ export const createTradingBotService = (
                 order: placedOrder,
               });
 
-              if (state.riskManagerActor && adjustedOrder.type === OrderType.MARKET) {
+              if (
+                state.riskManagerActor &&
+                adjustedOrder.type === OrderType.MARKET
+              ) {
                 actorSystem.send(state.riskManagerActor, {
                   type: "ORDER_FILLED",
                   order: placedOrder,
                   fillPrice: marketData.price,
                 });
-                
+
                 if (signal.type === "entry") {
                   state.positions[order.symbol] = {
                     symbol: order.symbol,
@@ -1135,18 +1287,24 @@ export const createTradingBotService = (
                       currentPrice: marketData.price,
                       unrealizedPnl: 0,
                       riskLevel: "LOW",
-                      entryTime: Date.now()
+                      entryTime: Date.now(),
                     };
-                    state.takeProfitIntegrator.takeProfitManager.positionOpened(position);
+                    state.takeProfitIntegrator.takeProfitManager.positionOpened(
+                      position,
+                    );
                   }
                 } else if (signal.type === "exit") {
                   if (state.takeProfitIntegrator) {
-                    state.takeProfitIntegrator.takeProfitManager.positionClosed(order.symbol);
+                    state.takeProfitIntegrator.takeProfitManager.positionClosed(
+                      order.symbol,
+                    );
                   }
                   delete state.positions[order.symbol];
                 }
               } else if (state.riskManagerActor) {
-                logger.debug(`Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`);
+                logger.debug(
+                  `Risk manager will be notified when LIMIT order ${placedOrder.id} is filled`,
+                );
               }
 
               if (state.performanceTrackerActor) {
@@ -1155,18 +1313,30 @@ export const createTradingBotService = (
                   strategyId,
                   symbol: order.symbol,
                   entryTime: Date.now(),
-                  entryPrice: adjustedOrder.type === OrderType.MARKET ? marketData.price : adjustedOrder.price || marketData.price,
+                  entryPrice:
+                    adjustedOrder.type === OrderType.MARKET
+                      ? marketData.price
+                      : adjustedOrder.price || marketData.price,
                   entryOrder: placedOrder,
                   quantity: adjustedOrder.size,
                   fees: 0,
-                  status: adjustedOrder.type === OrderType.MARKET ? "open" : "pending",
-                  tags: [signal.type, signal.direction, adjustedOrder.type.toLowerCase()],
+                  status:
+                    adjustedOrder.type === OrderType.MARKET
+                      ? "open"
+                      : "pending",
+                  tags: [
+                    signal.type,
+                    signal.direction,
+                    adjustedOrder.type.toLowerCase(),
+                  ],
                 };
                 actorSystem.send(state.performanceTrackerActor, {
                   type: "TRADE_OPENED",
                   trade: tradeEntry,
                 });
-                logger.debug(`Trade recorded in performance tracker with status: ${tradeEntry.status}`);
+                logger.debug(
+                  `Trade recorded in performance tracker with status: ${tradeEntry.status}`,
+                );
               }
             }
           } catch (error) {
@@ -1180,7 +1350,8 @@ export const createTradingBotService = (
             context.send(context.self, {
               type: "ORDER_REJECTED",
               order,
-              reason: (error as Error)?.message || 'Unknown error placing order',
+              reason:
+                (error as Error)?.message || "Unknown error placing order",
               error,
             });
           }
@@ -1191,7 +1362,9 @@ export const createTradingBotService = (
       case "ORDER_PLACED": {
         // Handle order placed confirmation
         const { order } = payload;
-        logger.info(`Order placed: ${order.id} for ${order.symbol}, ${order.side} ${order.size} @ ${order.price} USD`);
+        logger.info(
+          `Order placed: ${order.id} for ${order.symbol}, ${order.side} ${order.size} @ ${order.price} USD`,
+        );
 
         // Record successful order for health monitoring
         strategyHealthMonitor.recordSuccess(order.symbol);
@@ -1223,17 +1396,21 @@ export const createTradingBotService = (
 
       case "ORDER_REJECTED": {
         const { order, reason, error } = payload;
-        
+
         // Check if this is a "fully filled" error - treat as success
-        const isFullyFilledError = reason && (
-          reason.includes("Order is fully filled") ||
-          reason.includes("Remaining amount: 0") ||
-          reason.includes("Order remaining amount is less than MinOrderBaseQuantums")
-        );
-        
+        const isFullyFilledError =
+          reason &&
+          (reason.includes("Order is fully filled") ||
+            reason.includes("Remaining amount: 0") ||
+            reason.includes(
+              "Order remaining amount is less than MinOrderBaseQuantums",
+            ));
+
         if (isFullyFilledError) {
-          logger.info(`🎉 Order treated as successfully filled (duplicate order prevention): ${order.symbol}, Reason: ${reason}`);
-          
+          logger.info(
+            `🎉 Order treated as successfully filled (duplicate order prevention): ${order.symbol}, Reason: ${reason}`,
+          );
+
           // Treat as a successful order placement since the position is already filled
           // This prevents strategy interruption due to duplicate order attempts
           const synthenticOrder: Order = {
@@ -1249,12 +1426,12 @@ export const createTradingBotService = (
             filledSize: order.size,
             avgFillPrice: order.price,
             reduceOnly: order.reduceOnly || false,
-            postOnly: order.postOnly || false
+            postOnly: order.postOnly || false,
           };
-          
+
           // Update order history as if it was successfully placed
           state.orderHistory.push(synthenticOrder);
-          
+
           // Also notify position tracking systems
           if (state.riskManagerActor) {
             actorSystem.send(state.riskManagerActor, {
@@ -1263,33 +1440,42 @@ export const createTradingBotService = (
               fillPrice: order.price || 0,
             });
           }
-          
+
           // Record as successful for health monitoring
           strategyHealthMonitor.recordSuccess(`synthetic_${order.symbol}`);
-          
-          logger.info(`✅ Synthetic filled order processed for ${order.symbol} to maintain strategy continuity`);
-          
+
+          logger.info(
+            `✅ Synthetic filled order processed for ${order.symbol} to maintain strategy continuity`,
+          );
+
           return { state };
         }
-        
+
         // Record error for health monitoring
         const strategyId = `error_${order.symbol}`;
         strategyHealthMonitor.recordError(strategyId, reason);
-        
+
         // Check if strategy needs intervention
         if (strategyHealthMonitor.needsIntervention(strategyId)) {
-          logger.warn(`🚨 Strategy ${strategyId} needs intervention due to repeated failures`, {
-            healthStatus: strategyHealthMonitor.getHealthStatus(strategyId)
-          });
-          
+          logger.warn(
+            `🚨 Strategy ${strategyId} needs intervention due to repeated failures`,
+            {
+              healthStatus: strategyHealthMonitor.getHealthStatus(strategyId),
+            },
+          );
+
           // Try auto-recovery if possible
           if (strategyHealthMonitor.canAutoRecover(strategyId)) {
-            logger.info(`🔄 Attempting auto-recovery for strategy ${strategyId}`);
+            logger.info(
+              `🔄 Attempting auto-recovery for strategy ${strategyId}`,
+            );
             strategyHealthMonitor.recordRecovery(strategyId);
           }
         }
-        
-        logger.warn(`Order rejected for symbol ${order.symbol} (parameters: ${JSON.stringify(order)}), Reason: ${reason}`);
+
+        logger.warn(
+          `Order rejected for symbol ${order.symbol} (parameters: ${JSON.stringify(order)}), Reason: ${reason}`,
+        );
 
         // Update order history with rejection reason
         state.rejectedOrders.push({ order, reason, error });
@@ -1299,7 +1485,9 @@ export const createTradingBotService = (
 
       case "ORDER_CANCELLED": {
         const { order, reason } = payload;
-        logger.info(`Order cancelled: ${order.id} for ${order.symbol}, Reason: ${reason}`);
+        logger.info(
+          `Order cancelled: ${order.id} for ${order.symbol}, Reason: ${reason}`,
+        );
 
         // Update order history
         state.cancelledOrders.push({ order, reason });
@@ -1309,7 +1497,9 @@ export const createTradingBotService = (
 
       case "RISK_ASSESSMENT_RESULT": {
         const { orderId, result } = payload;
-        logger.info(`Received risk assessment result for order ${orderId}: ${JSON.stringify(result)}`);
+        logger.info(
+          `Received risk assessment result for order ${orderId}: ${JSON.stringify(result)}`,
+        );
 
         // Handle risk assessment result (e.g., adjust order, notify user, etc.)
         // For now, we just log it
@@ -1334,13 +1524,18 @@ export const createTradingBotService = (
           try {
             const marketData = await marketDataPort.getLatestMarketData(symbol);
             if (state.takeProfitIntegrator) {
-              const analysis = await state.takeProfitIntegrator.takeProfitManager.analyzePosition(
-                symbol,
-                marketData.price
+              const analysis =
+                await state.takeProfitIntegrator.takeProfitManager.analyzePosition(
+                  symbol,
+                  marketData.price,
+                );
+              logger.info(
+                `Position analysis for ${symbol}: ${JSON.stringify(analysis)}`,
               );
-              logger.info(`Position analysis for ${symbol}: ${JSON.stringify(analysis)}`);
             } else {
-              logger.warn(`TakeProfitIntegrator not available for position analysis of ${symbol}`);
+              logger.warn(
+                `TakeProfitIntegrator not available for position analysis of ${symbol}`,
+              );
             }
           } catch (error) {
             logger.error(`Error analyzing position ${symbol}:`, error as Error);
@@ -1351,12 +1546,20 @@ export const createTradingBotService = (
       }
 
       case "POSITION_VIABILITY_RESULT": {
-        const { symbol, isViable, reason, shouldClose, direction, size } = payload;
-        logger.info(`Position viability result for ${symbol}: Viable=${isViable}, Reason=${reason}`);
+        const { symbol, isViable, reason, shouldClose, direction, size } =
+          payload;
+        logger.info(
+          `Position viability result for ${symbol}: Viable=${isViable}, Reason=${reason}`,
+        );
 
         if (shouldClose) {
-          if (typeof size === 'number' && (direction === 'long' || direction === 'short')) {
-            logger.info(`Closing position ${symbol} as it's no longer viable (Direction: ${direction}, Size: ${size})`);
+          if (
+            typeof size === "number" &&
+            (direction === "long" || direction === "short")
+          ) {
+            logger.info(
+              `Closing position ${symbol} as it's no longer viable (Direction: ${direction}, Size: ${size})`,
+            );
             await closePosition(
               symbol,
               direction,
@@ -1367,27 +1570,31 @@ export const createTradingBotService = (
               context,
             );
           } else {
-            logger.error(`Cannot close position ${symbol}: size is undefined or invalid, or direction is not 'long' or 'short'. (Size: ${size}, Direction: ${direction})`);
+            logger.error(
+              `Cannot close position ${symbol}: size is undefined or invalid, or direction is not 'long' or 'short'. (Size: ${size}, Direction: ${direction})`,
+            );
           }
         }
 
         return { state };
       }
-      
+
       case "REQUEST_MARKET_DATA": {
         const { symbol, strategyId, signal } = payload.payload;
-        logger.info(`Received request for market data for symbol ${symbol} from strategy ${strategyId}`);
-        
+        logger.info(
+          `Received request for market data for symbol ${symbol} from strategy ${strategyId}`,
+        );
+
         try {
           // Get latest market data
           const marketData = await marketDataPort.getLatestMarketData(symbol);
-          
+
           if (marketData) {
             // Send data directly to the StrategyManager
             if (state.strategyManagerActor) {
               // Generate a unique ID for this signal
               const signalId = `${strategyId}_${Date.now()}`;
-              
+
               // Create a pending signal entry for tracking
               const updatedPendingSignals = {
                 ...state.pendingSignals,
@@ -1399,118 +1606,140 @@ export const createTradingBotService = (
                   timestamp: Date.now(),
                   attempts: 1,
                   lastAttempt: Date.now(),
-                  reason: "Market data requested directly"
-                }
+                  reason: "Market data requested directly",
+                },
               };
-              
+
               // Process signal immediately with the retrieved data
               context.send(context.self, {
                 type: "CONSOLIDATED_SIGNAL",
                 payload: {
                   strategyId,
                   signal,
-                  marketData
-                }
+                  marketData,
+                },
               });
-              
+
               return {
                 state: {
                   ...state,
-                  pendingSignals: updatedPendingSignals
-                }
+                  pendingSignals: updatedPendingSignals,
+                },
               };
             }
           } else {
             logger.warn(`Failed to fetch market data for symbol ${symbol}`);
           }
         } catch (error) {
-          logger.error(`Error fetching market data for symbol ${symbol}:`, error instanceof Error ? error : new Error(String(error)));
+          logger.error(
+            `Error fetching market data for symbol ${symbol}:`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
-        
+
         return { state };
       }
-      
+
       case "RETRY_SIGNAL": {
         const { pendingSignalId } = payload.payload;
         const pendingSignal = state.pendingSignals[pendingSignalId];
-        
+
         if (!pendingSignal) {
-          logger.warn(`Cannot retry signal ${pendingSignalId}: not found in pending signals`);
+          logger.warn(
+            `Cannot retry signal ${pendingSignalId}: not found in pending signals`,
+          );
           return { state };
         }
-        
+
         // Vérifier le nombre de tentatives (max 3)
         if (pendingSignal.attempts >= 3) {
-          logger.warn(`Signal ${pendingSignalId} has reached maximum retry attempts (${pendingSignal.attempts}). Abandoning.`);
-          
+          logger.warn(
+            `Signal ${pendingSignalId} has reached maximum retry attempts (${pendingSignal.attempts}). Abandoning.`,
+          );
+
           // Supprimer le signal des signaux en attente
-          const { [pendingSignalId]: _, ...remainingSignals } = state.pendingSignals;
-          
+          const { [pendingSignalId]: _, ...remainingSignals } =
+            state.pendingSignals;
+
           return {
             state: {
               ...state,
-              pendingSignals: remainingSignals
-            }
+              pendingSignals: remainingSignals,
+            },
           };
         }
-        
-        logger.info(`Retrying signal ${pendingSignalId} (attempt ${pendingSignal.attempts + 1})`);
-        
+
+        logger.info(
+          `Retrying signal ${pendingSignalId} (attempt ${pendingSignal.attempts + 1})`,
+        );
+
         try {
           // Récupérer les dernières données de marché
-          const marketData = await marketDataPort.getLatestMarketData(pendingSignal.symbol);
-          
+          const marketData = await marketDataPort.getLatestMarketData(
+            pendingSignal.symbol,
+          );
+
           if (marketData) {
             // Mettre à jour le signal en attente
             const updatedPendingSignal = {
               ...pendingSignal,
               attempts: pendingSignal.attempts + 1,
-              lastAttempt: Date.now()
+              lastAttempt: Date.now(),
             };
-            
+
             const updatedPendingSignals = {
               ...state.pendingSignals,
-              [pendingSignalId]: updatedPendingSignal
+              [pendingSignalId]: updatedPendingSignal,
             };
-            
+
             // Traiter le signal avec les nouvelles données de marché
             context.send(context.self, {
               type: "CONSOLIDATED_SIGNAL",
               payload: {
                 strategyId: pendingSignal.strategyId,
                 signal: pendingSignal.signal,
-                marketData
-              }
+                marketData,
+              },
             });
-            
+
             return {
               state: {
                 ...state,
-                pendingSignals: updatedPendingSignals
-              }
+                pendingSignals: updatedPendingSignals,
+              },
             };
           } else {
-            logger.warn(`Failed to fetch market data for retrying signal ${pendingSignalId}`);
-            
+            logger.warn(
+              `Failed to fetch market data for retrying signal ${pendingSignalId}`,
+            );
+
             // Planifier un autre réessai avec délai exponentiel
-            const delayMs = Math.min(30 * 60 * 1000, 5 * 60 * 1000 * Math.pow(2, pendingSignal.attempts)); // 5min, 10min, 20min, max 30min
-            
+            const delayMs = Math.min(
+              30 * 60 * 1000,
+              5 * 60 * 1000 * Math.pow(2, pendingSignal.attempts),
+            ); // 5min, 10min, 20min, max 30min
+
             setTimeout(() => {
               context.send(context.self, {
                 type: "RETRY_SIGNAL",
-                payload: { pendingSignalId }
+                payload: { pendingSignalId },
               });
             }, delayMs);
           }
         } catch (error) {
-          logger.error(`Error retrying signal ${pendingSignalId}:`, error instanceof Error ? error : new Error(String(error)));
+          logger.error(
+            `Error retrying signal ${pendingSignalId}:`,
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
-        
+
         return { state };
       }
 
       default:
-        logger.warn(`Unknown message type: ${(payload as any).type}`);
+        logger.warn(
+          `Unknown message type: ${(payload as { type?: string }).type}`,
+        );
         return { state };
     }
   };
@@ -1525,12 +1754,16 @@ export const createTradingBotService = (
       };
       // Create actor without a name/ID parameter, the system will assign an address.
       tradingBotActorAddress = actorSystem.createActor(definition);
-      
+
       if (tradingBotActorAddress) {
-        logger.info(`Trading Bot Actor created with address: ${JSON.stringify(tradingBotActorAddress)}`);
+        logger.info(
+          `Trading Bot Actor created with address: ${JSON.stringify(tradingBotActorAddress)}`,
+        );
         actorSystem.send(tradingBotActorAddress, { type: "START" });
       } else {
-        logger.error("Failed to create and obtain address for Trading Bot Actor.");
+        logger.error(
+          "Failed to create and obtain address for Trading Bot Actor.",
+        );
       }
     },
     stop: () => {
@@ -1538,13 +1771,20 @@ export const createTradingBotService = (
       if (tradingBotActorAddress) {
         actorSystem.send(tradingBotActorAddress, { type: "STOP" });
       } else {
-        logger.warn("Trading Bot Actor address not available to send STOP command.");
+        logger.warn(
+          "Trading Bot Actor address not available to send STOP command.",
+        );
       }
     },
     addStrategy: (strategy) => {
-      logger.info(`Adding strategy to Trading Bot Service: ${strategy.getName()}`);
+      logger.info(
+        `Adding strategy to Trading Bot Service: ${strategy.getName()}`,
+      );
       if (tradingBotActorAddress) {
-        actorSystem.send(tradingBotActorAddress, { type: "ADD_STRATEGY", strategy });
+        actorSystem.send(tradingBotActorAddress, {
+          type: "ADD_STRATEGY",
+          strategy,
+        });
       } else {
         logger.warn("Trading Bot Actor address not available to add strategy.");
       }
@@ -1552,9 +1792,14 @@ export const createTradingBotService = (
     removeStrategy: (strategyId) => {
       logger.info(`Removing strategy from Trading Bot Service: ${strategyId}`);
       if (tradingBotActorAddress) {
-        actorSystem.send(tradingBotActorAddress, { type: "REMOVE_STRATEGY", strategyId });
+        actorSystem.send(tradingBotActorAddress, {
+          type: "REMOVE_STRATEGY",
+          strategyId,
+        });
       } else {
-        logger.warn("Trading Bot Actor address not available to remove strategy.");
+        logger.warn(
+          "Trading Bot Actor address not available to remove strategy.",
+        );
       }
     },
     analyzeOpenPositions: () => {
@@ -1562,7 +1807,9 @@ export const createTradingBotService = (
       if (tradingBotActorAddress) {
         actorSystem.send(tradingBotActorAddress, { type: "ANALYZE_POSITIONS" });
       } else {
-        logger.warn("Trading Bot Actor address not available to analyze positions.");
+        logger.warn(
+          "Trading Bot Actor address not available to analyze positions.",
+        );
       }
     },
   };

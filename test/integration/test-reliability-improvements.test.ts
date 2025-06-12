@@ -242,7 +242,7 @@ describe("Reliability Improvements Integration Tests", () => {
   describe("Fully Filled Error Handling", () => {
     function isFullyFilledError(errorMessage: string): boolean {
       return (
-        errorMessage &&
+        !!errorMessage &&
         (errorMessage.includes("Order is fully filled") ||
           errorMessage.includes("Remaining amount: 0") ||
           errorMessage.includes(
@@ -314,7 +314,7 @@ describe("Reliability Improvements Integration Tests", () => {
       expect(syntheticOrder).not.toBeNull();
       expect(syntheticOrder?.status).toBe("FILLED");
       expect(syntheticOrder?.synthetic).toBe(true);
-      expect(syntheticOrder?.clientId).toBe(originalOrder.clientId);
+      expect(syntheticOrder?.clientId).toBe(originalOrder.clientId!);
       expect(noSynthetic).toBeNull();
     });
   });

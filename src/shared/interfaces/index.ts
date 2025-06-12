@@ -2,7 +2,7 @@
  * Interfaces partagées pour Lukaya Trading Bot
  */
 
-import { Result, LogLevel } from '../types';
+import { Result, LogLevel } from "../types";
 
 // Interface de base pour les services
 export interface Service {
@@ -35,19 +35,19 @@ export interface StrategyBase {
 
 // Interface pour les métriques
 export interface MetricsProvider {
-  getMetrics(): Promise<Record<string, any>>;
+  getMetrics(): Promise<Record<string, unknown>>;
   resetMetrics(): void;
 }
 
 // Interface pour la configuration
-export interface Configurable {
-  updateConfig(config: any): Promise<Result<void>>;
-  getConfig(): any;
-  validateConfig(config: any): Result<void>;
+export interface Configurable<T = Record<string, unknown>> {
+  updateConfig(config: T): Promise<Result<void>>;
+  getConfig(): T;
+  validateConfig(config: T): Result<void>;
 }
 
 // Interface pour les événements
-export interface EventEmitter<T = any> {
+export interface EventEmitter<T = unknown> {
   emit(event: string, data: T): void;
   on(event: string, handler: (data: T) => void): void;
   off(event: string, handler: (data: T) => void): void;
@@ -69,9 +69,14 @@ export interface HealthCheck {
 }
 
 // Types de statut
-export type ServiceStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
-export type ActorStatus = 'created' | 'active' | 'paused' | 'terminated';
-export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+export type ServiceStatus =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "error";
+export type ActorStatus = "created" | "active" | "paused" | "terminated";
+export type HealthStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
 // Détails de santé
 export interface HealthDetails {
@@ -86,6 +91,6 @@ export interface HealthCheckResult {
   name: string;
   status: HealthStatus;
   message?: string;
-  data?: any;
+  data?: Record<string, unknown>;
   duration: number;
 }

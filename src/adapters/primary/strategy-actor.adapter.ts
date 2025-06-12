@@ -9,7 +9,11 @@ import { Strategy, StrategySignal } from "../../domain/models/strategy.model";
 import { MarketData } from "../../domain/models/market.model";
 
 export type StrategyActorMessage =
-  | { type: "PROCESS_MARKET_DATA"; data: MarketData; tradingBotActorAddress: ActorAddress }
+  | {
+      type: "PROCESS_MARKET_DATA";
+      data: MarketData;
+      tradingBotActorAddress: ActorAddress;
+    }
   | { type: "UPDATE_CONFIG"; config: Record<string, unknown> }
   | { type: "GET_STATUS" };
 
@@ -36,14 +40,14 @@ export const createStrategyActorDefinition = (
     lastSignal: null,
     signalCount: 0,
     strategyManagerAddress,
-    active: true
+    active: true,
   };
 
   // Initialisation du comportement de l'acteur
   const behavior = async (
     state: StrategyActorState,
     message: ActorMessage<StrategyActorMessage>,
-    context: ActorContext<StrategyActorState>
+    context: ActorContext<StrategyActorState>,
   ) => {
     const { payload } = message;
 
@@ -54,23 +58,29 @@ export const createStrategyActorDefinition = (
         }
 
         const { data, tradingBotActorAddress } = payload;
-        const symbol = (strategy.getConfig().parameters as any).symbol || '';
-        
+        const symbol =
+          ((strategy.getConfig().parameters as Record<string, unknown>)
+            .symbol as string) || "";
+
         // Vérifier que les données correspondent au symbole de la stratégie
         if (data.symbol !== symbol) {
           return { state };
         }
-        
+
         try {
-          logger.debug(`[Acteur de stratégie ${strategyId}] Traitement des données de marché pour ${data.symbol}`);
-          
+          logger.debug(
+            `[Acteur de stratégie ${strategyId}] Traitement des données de marché pour ${data.symbol}`,
+          );
+
           // Traiter les données avec la stratégie
           const signal = await state.strategy.processMarketData(data);
-          
+
           // Si un signal est généré et que nous avons une référence au gestionnaire de stratégie, transmettre le signal
           if (signal && state.strategyManagerAddress) {
-            logger.info(`[Acteur de stratégie ${strategyId}] Signal généré ${signal.type}/${signal.direction} pour ${data.symbol}`);
-            
+            logger.info(
+              `[Acteur de stratégie ${strategyId}] Signal généré ${signal.type}/${signal.direction} pour ${data.symbol}`,
+            );
+
             // Envoyer le signal au Strategy Manager
             context.send(state.strategyManagerAddress, {
               type: "STRATEGY_SIGNAL",
@@ -78,64 +88,72 @@ export const createStrategyActorDefinition = (
               signal,
               symbol: data.symbol,
               timestamp: Date.now(),
-              tradingBotActorAddress
+              tradingBotActorAddress,
             });
-            
+
             // Mettre à jour l'état
             return {
               state: {
                 ...state,
                 lastProcessedData: data,
                 lastSignal: signal,
-                signalCount: state.signalCount + 1
-              }
+                signalCount: state.signalCount + 1,
+              },
             };
           }
-          
+
           // Mettre à jour l'état même si aucun signal n'est généré
           return {
             state: {
               ...state,
               lastProcessedData: data,
-              lastSignal: signal || state.lastSignal
-            }
+              lastSignal: signal || state.lastSignal,
+            },
           };
         } catch (error) {
-          logger.error(`[Acteur de stratégie ${strategyId}] Erreur lors du traitement des données de marché :`, error as Error);
+          logger.error(
+            `[Acteur de stratégie ${strategyId}] Erreur lors du traitement des données de marché :`,
+            error as Error,
+          );
           return { state };
         }
       }
-      
+
       case "UPDATE_CONFIG": {
         const { config } = payload;
-        logger.debug(`[Acteur de stratégie ${strategyId}] Mise à jour de la configuration`);
-        
+        logger.debug(
+          `[Acteur de stratégie ${strategyId}] Mise à jour de la configuration`,
+        );
+
         // Dans un cas réel, nous mettrions à jour la configuration de la stratégie ici
         // Pour l'instant, nous ne faisons que mettre à jour l'état active
         return {
           state: {
             ...state,
-            active: config.active !== undefined ? !!config.active : state.active
-          }
+            active:
+              config.active !== undefined ? !!config.active : state.active,
+          },
         };
       }
-      
+
       case "GET_STATUS": {
         // Cette méthode pourrait retourner des informations sur l'état actuel de la stratégie
         // Dans le contexte actuel, nous ne faisons rien de spécial ici car aucune réponse n'est gérée
         return { state };
       }
-      
+
       default: {
-        logger.warn(`[Acteur de stratégie ${strategyId}] Type de message inconnu : ${(payload as any).type}`);
+        logger.warn(
+          `[Acteur de stratégie ${strategyId}] Type de message inconnu : ${(payload as { type?: string }).type}`,
+        );
         return { state };
       }
     }
   };
-  
+
   return {
     behavior,
     initialState,
-    supervisorStrategy: { type: "restart" }
+    supervisorStrategy: { type: "restart" },
   };
 };

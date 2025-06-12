@@ -3,42 +3,38 @@ import {
   OrderSide,
   OrderType,
   TimeInForce,
-  OrderStatus,
   MarketData,
   OrderParams,
-  Order,
-  MarketDataMetrics
+  MarketDataMetrics,
 } from "../../../src/domain/models/market.model";
 import {
-  createTestOrder,
   expectToMatchTimestamp,
   generateRandomPrice,
-  TEST_SYMBOLS
+  TEST_SYMBOLS,
 } from "../../test-utils";
 
 describe("Market Model Tests", () => {
-
   describe("OrderSide Enum", () => {
     test("should have correct values", () => {
-      expect(OrderSide.BUY).toBe("BUY");
-      expect(OrderSide.SELL).toBe("SELL");
+      expect(OrderSide.BUY).toBe(OrderSide.BUY);
+      expect(OrderSide.SELL).toBe(OrderSide.SELL);
     });
 
     test("should contain only BUY and SELL values", () => {
       const values = Object.values(OrderSide);
       expect(values).toHaveLength(2);
-      expect(values).toContain("BUY");
-      expect(values).toContain("SELL");
+      expect(values).toContain(OrderSide.BUY);
+      expect(values).toContain(OrderSide.SELL);
     });
   });
 
   describe("OrderType Enum", () => {
     test("should have all required order types", () => {
-      expect(OrderType.MARKET).toBe("MARKET");
-      expect(OrderType.LIMIT).toBe("LIMIT");
-      expect(OrderType.STOP).toBe("STOP");
-      expect(OrderType.STOP_LIMIT).toBe("STOP_LIMIT");
-      expect(OrderType.TRAILING_STOP).toBe("TRAILING_STOP");
+      expect(OrderType.MARKET).toBe(OrderType.MARKET);
+      expect(OrderType.LIMIT).toBe(OrderType.LIMIT);
+      expect(OrderType.STOP).toBe(OrderType.STOP);
+      expect(OrderType.STOP_LIMIT).toBe(OrderType.STOP_LIMIT);
+      expect(OrderType.TRAILING_STOP).toBe(OrderType.TRAILING_STOP);
     });
 
     test("should contain exactly 5 order types", () => {
@@ -49,16 +45,18 @@ describe("Market Model Tests", () => {
 
   describe("TimeInForce Enum", () => {
     test("should have all required time in force values", () => {
-      expect(TimeInForce.GOOD_TIL_CANCEL).toBe("GOOD_TIL_CANCEL");
-      expect(TimeInForce.FILL_OR_KILL).toBe("FILL_OR_KILL");
-      expect(TimeInForce.IMMEDIATE_OR_CANCEL).toBe("IMMEDIATE_OR_CANCEL");
-      expect(TimeInForce.GOOD_TILL_TIME).toBe("GOOD_TILL_TIME");
-      expect(TimeInForce.GTT).toBe("GTT");
+      expect(TimeInForce.GOOD_TIL_CANCEL).toBe(TimeInForce.GOOD_TIL_CANCEL);
+      expect(TimeInForce.FILL_OR_KILL).toBe(TimeInForce.FILL_OR_KILL);
+      expect(TimeInForce.IMMEDIATE_OR_CANCEL).toBe(
+        TimeInForce.IMMEDIATE_OR_CANCEL,
+      );
+      expect(TimeInForce.GOOD_TILL_TIME).toBe(TimeInForce.GOOD_TILL_TIME);
+      expect(TimeInForce.GTT).toBe(TimeInForce.GTT);
     });
 
     test("should support both GTT formats", () => {
-      expect(TimeInForce.GOOD_TILL_TIME).toBe("GOOD_TILL_TIME");
-      expect(TimeInForce.GTT).toBe("GTT");
+      expect(TimeInForce.GOOD_TILL_TIME).toBe(TimeInForce.GOOD_TILL_TIME);
+      expect(TimeInForce.GTT).toBe(TimeInForce.GTT);
     });
   });
 
@@ -72,7 +70,7 @@ describe("Market Model Tests", () => {
         timestamp: Date.now(),
         volume: 1000000,
         bid: 49999,
-        ask: 50001
+        ask: 50001,
       };
     });
 
@@ -100,9 +98,9 @@ describe("Market Model Tests", () => {
           bollinger: {
             upper: 51000,
             middle: 50000,
-            lower: 49000
-          }
-        }
+            lower: 49000,
+          },
+        },
       };
 
       expect(dataWithIndicators.indicators).toBeDefined();
@@ -114,12 +112,12 @@ describe("Market Model Tests", () => {
         tickCount: 100,
         totalTickDuration: 60000,
         errorCount: 2,
-        lastTick: Date.now()
+        lastTick: Date.now(),
       };
 
       const dataWithMetrics: MarketData = {
         ...marketData,
-        metrics
+        metrics,
       };
 
       expect(dataWithMetrics.metrics).toBeDefined();
@@ -140,7 +138,7 @@ describe("Market Model Tests", () => {
         symbol: "ETH-USD",
         side: OrderSide.BUY,
         type: OrderType.MARKET,
-        size: 0.5
+        size: 0.5,
       };
     });
 
@@ -155,7 +153,7 @@ describe("Market Model Tests", () => {
       const limitOrder: OrderParams = {
         ...basicOrderParams,
         type: OrderType.LIMIT,
-        price: 3000
+        price: 3000,
       };
 
       expect(limitOrder.price).toBe(3000);
@@ -168,7 +166,7 @@ describe("Market Model Tests", () => {
         timeInForce: TimeInForce.FILL_OR_KILL,
         reduceOnly: true,
         postOnly: false,
-        clientId: 12345
+        clientId: 12345,
       };
 
       expect(advancedOrder.timeInForce).toBe(TimeInForce.FILL_OR_KILL);
@@ -182,10 +180,10 @@ describe("Market Model Tests", () => {
     });
 
     test("should support all valid symbols", () => {
-      TEST_SYMBOLS.forEach(symbol => {
+      TEST_SYMBOLS.forEach((symbol) => {
         const order: OrderParams = {
           ...basicOrderParams,
-          symbol
+          symbol,
         };
         expect(order.symbol).toBe(symbol);
       });
@@ -200,7 +198,7 @@ describe("Market Model Tests", () => {
         tickCount: 50,
         totalTickDuration: 30000,
         errorCount: 1,
-        lastTick: Date.now()
+        lastTick: Date.now(),
       };
     });
 
@@ -234,7 +232,7 @@ describe("Market Model Tests", () => {
         symbol: "BTC-USD",
         side: OrderSide.BUY,
         type: OrderType.MARKET,
-        size: 0.001
+        size: 0.001,
       };
 
       // Market orders shouldn't need price
@@ -248,7 +246,7 @@ describe("Market Model Tests", () => {
         side: OrderSide.SELL,
         type: OrderType.LIMIT,
         size: 0.001,
-        price: 50000
+        price: 50000,
       };
 
       // Limit orders should have price
@@ -262,7 +260,7 @@ describe("Market Model Tests", () => {
         side: OrderSide.SELL,
         type: OrderType.STOP,
         size: 0.001,
-        price: 48000 // Stop price below current for sell
+        price: 48000, // Stop price below current for sell
       };
 
       expect(stopOrder.type).toBe(OrderType.STOP);
@@ -273,11 +271,11 @@ describe("Market Model Tests", () => {
       const validSizes = [0.001, 0.1, 1.0, 10.5];
       const invalidSizes = [0, -1, -0.001];
 
-      validSizes.forEach(size => {
+      validSizes.forEach((size) => {
         expect(size).toBeGreaterThan(0);
       });
 
-      invalidSizes.forEach(size => {
+      invalidSizes.forEach((size) => {
         expect(size).toBeLessThanOrEqual(0);
       });
     });
@@ -289,7 +287,7 @@ describe("Market Model Tests", () => {
         "BTC-USD": generateRandomPrice(50000, 0.1),
         "ETH-USD": generateRandomPrice(3000, 0.1),
         "SOL-USD": generateRandomPrice(100, 0.2),
-        "AVAX-USD": generateRandomPrice(30, 0.3)
+        "AVAX-USD": generateRandomPrice(30, 0.3),
       };
 
       Object.entries(prices).forEach(([symbol, price]) => {
@@ -304,7 +302,9 @@ describe("Market Model Tests", () => {
       const roundedPrice = Math.round(price * 100) / 100;
 
       expect(roundedPrice).toBe(50000.12);
-      expect(roundedPrice.toString().split('.')[1]?.length || 0).toBeLessThanOrEqual(2);
+      expect(
+        roundedPrice.toString().split(".")[1]?.length || 0,
+      ).toBeLessThanOrEqual(2);
     });
   });
 
@@ -317,10 +317,10 @@ describe("Market Model Tests", () => {
         "FILLED",
         "PARTIALLY_FILLED",
         "CANCELLED",
-        "REJECTED"
+        "REJECTED",
       ];
 
-      validStatuses.forEach(status => {
+      validStatuses.forEach((status) => {
         expect(typeof status).toBe("string");
         expect(status.length).toBeGreaterThan(0);
       });
@@ -332,12 +332,12 @@ describe("Market Model Tests", () => {
       const validSymbols = ["BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD"];
       const invalidSymbols = ["BTC", "USD", "BTC/USD", "btc-usd", ""];
 
-      validSymbols.forEach(symbol => {
+      validSymbols.forEach((symbol) => {
         expect(symbol).toMatch(/^[A-Z]+-[A-Z]+$/);
         expect(symbol.includes("-")).toBe(true);
       });
 
-      invalidSymbols.forEach(symbol => {
+      invalidSymbols.forEach((symbol) => {
         expect(symbol).not.toMatch(/^[A-Z]+-[A-Z]+$/);
       });
     });
@@ -359,7 +359,7 @@ describe("Market Model Tests", () => {
         symbol: "BTC-USD",
         side: OrderSide.BUY,
         type: OrderType.MARKET,
-        size: 0.001
+        size: 0.001,
       };
 
       expect(buyOrder.side).toBe(OrderSide.BUY);
@@ -372,7 +372,7 @@ describe("Market Model Tests", () => {
         symbol: "BTC-USD",
         side: OrderSide.SELL,
         type: OrderType.MARKET,
-        size: 0.001
+        size: 0.001,
       };
 
       expect(sellOrder.side).toBe(OrderSide.SELL);

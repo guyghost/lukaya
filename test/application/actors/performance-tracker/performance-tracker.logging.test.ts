@@ -3,7 +3,17 @@ import {
   OrderSide,
   OrderType,
   OrderStatus,
+  Order,
 } from "../../../../src/domain/models/market.model";
+import {
+  ActorDefinition,
+  ActorContext,
+  ActorMessage,
+} from "../../../../src/actor/models/actor.model";
+import {
+  PerformanceTrackerConfig,
+  PerformanceTrackerState,
+} from "../../../../src/application/actors/performance-tracker/performance-tracker.model";
 
 // Mock types since the actual imports might not work in test environment
 interface TradeEntry {
@@ -12,17 +22,16 @@ interface TradeEntry {
   symbol: string;
   entryTime: number;
   entryPrice: number;
-  entryOrder: any;
+  entryOrder: Order;
   quantity: number;
   fees: number;
   status: "open" | "closed";
   tags: string[];
   exitTime?: number;
   exitPrice?: number;
-  exitOrder?: any;
+  exitOrder?: Order;
   pnl?: number;
   pnlPercent?: number;
-  duration?: number;
 }
 
 interface PerformanceTrackerMessage {
@@ -32,7 +41,7 @@ interface PerformanceTrackerMessage {
   price?: number;
   timestamp?: number;
   currentPrices?: Record<string, number>;
-  config?: any;
+  config?: PerformanceTrackerConfig;
 }
 
 // Mock actor definition
@@ -52,7 +61,11 @@ const createMockPerformanceTrackerActorDefinition = () => ({
       calculationInterval: 60000,
     },
   },
-  behavior: async (state: any, message: any, context: any) => {
+  behavior: async (
+    state: PerformanceTrackerState,
+    message: ActorMessage<PerformanceTrackerMessage>,
+    context: ActorContext,
+  ) => {
     const newState = { ...state };
     const msg = message.payload as PerformanceTrackerMessage;
 
@@ -113,8 +126,8 @@ const createMockPerformanceTrackerActorDefinition = () => ({
 });
 
 describe("PerformanceTracker Logging", () => {
-  let actorDefinition: any;
-  let mockContext: any;
+  let actorDefinition: ActorDefinition;
+  let mockContext: ActorContext;
 
   beforeEach(() => {
     actorDefinition = createMockPerformanceTrackerActorDefinition();

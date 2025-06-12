@@ -4,13 +4,22 @@
  * Version refactorisée avec une architecture propre et une gestion d'erreur améliorée
  */
 
-import { loadConfig, getNetworkFromString } from "./infrastructure/config/enhanced-config";
-import { initializeLogger, createContextualLogger } from "./infrastructure/logging/enhanced-logger";
+import {
+  loadConfig,
+  getNetworkFromString,
+} from "./infrastructure/config/enhanced-config";
+import {
+  initializeLogger,
+  createContextualLogger,
+} from "./infrastructure/logging/enhanced-logger";
 import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
-import { createTradingBotService, TradingBotService } from "./application/services/trading-bot.service";
+import {
+  createTradingBotService,
+  TradingBotService,
+} from "./application/services/trading-bot.service";
 import { StrategyFactory } from "./adapters/strategies";
 import { ServiceStatus, StrategyType } from "./shared/enums";
-import { Result } from "./shared/types";
+import { Result, ApplicationHealth } from "./shared/types";
 import { result } from "./shared/utils";
 import { AppConfig } from "./shared/interfaces/config.interface";
 import { MarketDataPort } from "./application/ports/market-data.port";
@@ -20,7 +29,7 @@ interface LukayaApp {
   status: ServiceStatus;
   start(): Promise<Result<void>>;
   stop(): Promise<Result<void>>;
-  getHealth(): Promise<any>;
+  getHealth(): Promise<ApplicationHealth>;
 }
 
 /**
@@ -28,7 +37,7 @@ interface LukayaApp {
  */
 class LukayaTradingApp implements LukayaApp {
   public status: ServiceStatus = ServiceStatus.STOPPED;
-  private logger = createContextualLogger('LukayaApp');
+  private logger = createContextualLogger("LukayaApp");
   private tradingBot!: TradingBotService; // Définitive assignment assertion
   private config!: AppConfig; // Définitive assignment assertion
   private marketDataPort!: MarketDataPort; // Ajout du port de données de marché
@@ -73,7 +82,6 @@ class LukayaTradingApp implements LukayaApp {
       this.logger.info("✅ Lukaya Trading Bot démarré avec succès!");
 
       return result.success(undefined, "Application démarrée");
-
     } catch (error) {
       this.status = ServiceStatus.ERROR;
       const errorMsg = "Erreur critique lors du démarrage";
@@ -103,7 +111,6 @@ class LukayaTradingApp implements LukayaApp {
       this.logger.info("✅ Lukaya Trading Bot arrêté proprement");
 
       return result.success(undefined, "Application arrêtée");
-
     } catch (error) {
       this.status = ServiceStatus.ERROR;
       const errorMsg = "Erreur lors de l'arrêt";
@@ -115,14 +122,27 @@ class LukayaTradingApp implements LukayaApp {
   /**
    * Retourne l'état de santé de l'application
    */
-  public async getHealth(): Promise<any> {
+  public async getHealth(): Promise<ApplicationHealth> {
     return {
-      status: this.status,
-      timestamp: new Date().toISOString(),
+      status: this.status === ServiceStatus.RUNNING ? "healthy" : "unhealthy",
+      timestamp: Date.now(),
+      version: process.env.npm_package_version || "1.0.0",
       uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      pid: process.pid,
-      version: process.env.npm_package_version || '1.0.0',
+      services: [],
+      actors: [],
+      memory: {
+        used: process.memoryUsage().heapUsed,
+        total: process.memoryUsage().heapTotal,
+        percentage:
+          (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) *
+          100,
+      },
+      performance: {
+        cpu: 0,
+        memoryUsage: process.memoryUsage().heapUsed,
+        activeConnections: 0,
+        requestsPerSecond: 0,
+      },
     };
   }
 
@@ -132,9 +152,9 @@ class LukayaTradingApp implements LukayaApp {
   private async loadConfiguration(): Promise<Result<void>> {
     try {
       this.logger.debug("📋 Chargement de la configuration...");
-      
+
       this.config = loadConfig();
-      
+
       // Initialiser le logger avec la nouvelle configuration
       initializeLogger({
         level: this.config.logging.level,
@@ -151,9 +171,11 @@ class LukayaTradingApp implements LukayaApp {
       });
 
       return result.success(undefined, "Configuration chargée");
-
     } catch (error) {
-      return result.error(error as Error, "Erreur lors du chargement de la configuration");
+      return result.error(
+        error as Error,
+        "Erreur lors du chargement de la configuration",
+      );
     }
   }
 
@@ -176,7 +198,7 @@ class LukayaTradingApp implements LukayaApp {
       // Vérifier l'accès au compte
       this.logger.debug("Vérification de l'accès au compte...");
       const accountBalance = await tradingPort.getAccountBalance();
-      
+
       this.logger.info("Accès au compte validé", {
         balanceKeys: Object.keys(accountBalance),
       });
@@ -187,27 +209,40 @@ class LukayaTradingApp implements LukayaApp {
         tradingPort,
         {
           pollInterval: this.config.trading.pollInterval,
-          positionAnalysisInterval: this.config.trading.positionAnalysisInterval,
+          positionAnalysisInterval:
+            this.config.trading.positionAnalysisInterval,
           maxFundsPerOrder: this.config.trading.maxFundsPerOrder,
           riskConfig: {
             maxRiskPerTrade: this.config.trading.riskPerTrade,
             stopLossPercent: this.config.trading.stopLossPercent,
             accountSize: this.config.trading.defaultAccountSize,
             maxLeverage: this.config.trading.maxLeverage,
-            maxOpenPositions: this.config.actors?.riskManager?.maxOpenPositions ?? 3,
+            maxOpenPositions:
+              this.config.actors?.riskManager?.maxOpenPositions ?? 3,
             maxPositionSize: this.config.trading.maxCapitalPerTrade,
           },
           strategyConfig: {
-            autoAdjustWeights: this.config.actors?.strategyManager?.autoAdjustWeights ?? true,
-            maxActiveStrategies: this.config.actors?.strategyManager?.maxActiveStrategies ?? 4,
-            conflictResolutionMode: this.config.actors?.strategyManager?.conflictResolutionMode ?? 'performance_weighted',
-            optimizationEnabled: this.config.actors?.strategyManager?.optimizationEnabled ?? true,
+            autoAdjustWeights:
+              this.config.actors?.strategyManager?.autoAdjustWeights ?? true,
+            maxActiveStrategies:
+              this.config.actors?.strategyManager?.maxActiveStrategies ?? 4,
+            conflictResolutionMode:
+              this.config.actors?.strategyManager?.conflictResolutionMode ??
+              "performance_weighted",
+            optimizationEnabled:
+              this.config.actors?.strategyManager?.optimizationEnabled ?? true,
           },
           performanceConfig: {
-            historyLength: this.config.actors?.performanceTracker?.historyLength ?? 100,
-            trackOpenPositions: this.config.actors?.performanceTracker?.trackOpenPositions ?? true,
-            realTimeUpdates: this.config.actors?.performanceTracker?.realTimeUpdates ?? true,
-            calculationInterval: this.config.actors?.performanceTracker?.calculationInterval ?? 300000,
+            historyLength:
+              this.config.actors?.performanceTracker?.historyLength ?? 100,
+            trackOpenPositions:
+              this.config.actors?.performanceTracker?.trackOpenPositions ??
+              true,
+            realTimeUpdates:
+              this.config.actors?.performanceTracker?.realTimeUpdates ?? true,
+            calculationInterval:
+              this.config.actors?.performanceTracker?.calculationInterval ??
+              300000,
           },
           takeProfitConfig: {
             enabled: this.config.takeProfit?.enabled ?? false,
@@ -219,13 +254,15 @@ class LukayaTradingApp implements LukayaApp {
             priceCheckInterval: 30 * 1000,
             positionCheckInterval: 2 * 60 * 1000,
           },
-        }
+        },
       );
 
       return result.success(undefined, "Services initialisés");
-
     } catch (error) {
-      return result.error(error as Error, "Erreur lors de l'initialisation des services");
+      return result.error(
+        error as Error,
+        "Erreur lors de l'initialisation des services",
+      );
     }
   }
 
@@ -237,20 +274,22 @@ class LukayaTradingApp implements LukayaApp {
       this.logger.error("Type de stratégie non spécifié");
       return null;
     }
-    
+
     const typeMap: Record<string, StrategyType> = {
-      'rsi-div': StrategyType.RSI_DIVERGENCE,
-      'rsi-divergence': StrategyType.RSI_DIVERGENCE,  // Keep for backwards compatibility
-      'volume-analysis': StrategyType.VOLUME_ANALYSIS,
-      'elliott-wave': StrategyType.ELLIOTT_WAVE,
-      'harmonic-pattern': StrategyType.HARMONIC_PATTERN,
-      'scalping-entry-exit': StrategyType.SCALPING_ENTRY_EXIT,
-      'coordinated-multi-strategy': StrategyType.COORDINATED_MULTI_STRATEGY
+      "rsi-div": StrategyType.RSI_DIVERGENCE,
+      "rsi-divergence": StrategyType.RSI_DIVERGENCE, // Keep for backwards compatibility
+      "volume-analysis": StrategyType.VOLUME_ANALYSIS,
+      "elliott-wave": StrategyType.ELLIOTT_WAVE,
+      "harmonic-pattern": StrategyType.HARMONIC_PATTERN,
+      "scalping-entry-exit": StrategyType.SCALPING_ENTRY_EXIT,
+      "coordinated-multi-strategy": StrategyType.COORDINATED_MULTI_STRATEGY,
     };
 
     const strategyType = typeMap[typeString];
     if (!strategyType) {
-      this.logger.error(`Type de stratégie non supporté: ${typeString}. Types supportés: ${Object.keys(typeMap).join(', ')}`);
+      this.logger.error(
+        `Type de stratégie non supporté: ${typeString}. Types supportés: ${Object.keys(typeMap).join(", ")}`,
+      );
       return null;
     }
 
@@ -277,20 +316,24 @@ class LukayaTradingApp implements LukayaApp {
           // Convertir le type string en enum StrategyType
           const strategyType = this.getStrategyType(strategyConfig.type);
           if (!strategyType) {
-            this.logger.error(`Type de stratégie non reconnu: ${strategyConfig.type}`);
+            this.logger.error(
+              `Type de stratégie non reconnu: ${strategyConfig.type}`,
+            );
             continue;
           }
 
           // Vérifier que les paramètres sont présents
           if (!strategyConfig.parameters) {
-            this.logger.error(`Paramètres manquants pour la stratégie: ${strategyConfig.type}`);
+            this.logger.error(
+              `Paramètres manquants pour la stratégie: ${strategyConfig.type}`,
+            );
             continue;
           }
 
           // Créer la stratégie avec le type enum
           const strategy = await strategyFactory.createStrategy(
             strategyType,
-            strategyConfig.parameters as any // Cast to any to handle the Record<string, unknown> issue
+            strategyConfig.parameters as Record<string, unknown>,
           );
 
           this.tradingBot.addStrategy(strategy);
@@ -300,11 +343,10 @@ class LukayaTradingApp implements LukayaApp {
             type: strategyConfig.type,
             weight: strategyConfig.weight,
           });
-
         } catch (error) {
           this.logger.error(
             `Erreur lors de l'initialisation de la stratégie: ${strategyConfig.type}`,
-            error as Error
+            error as Error,
           );
           // Continuer avec les autres stratégies
         }
@@ -313,15 +355,17 @@ class LukayaTradingApp implements LukayaApp {
       if (addedStrategies === 0) {
         return result.error(
           new Error("Aucune stratégie n'a pu être initialisée"),
-          "Configuration des stratégies échouée"
+          "Configuration des stratégies échouée",
         );
       }
 
       this.logger.info(`${addedStrategies} stratégies configurées avec succès`);
       return result.success(undefined, "Stratégies configurées");
-
     } catch (error) {
-      return result.error(error as Error, "Erreur lors de la configuration des stratégies");
+      return result.error(
+        error as Error,
+        "Erreur lors de la configuration des stratégies",
+      );
     }
   }
 
@@ -341,7 +385,6 @@ class LukayaTradingApp implements LukayaApp {
       }, 60 * 1000);
 
       return result.success(undefined, "Bot de trading démarré");
-
     } catch (error) {
       return result.error(error as Error, "Erreur lors du démarrage du bot");
     }
@@ -373,7 +416,8 @@ class LukayaTradingApp implements LukayaApp {
 
     // Gestion des rejets de promesses non capturés
     process.on("unhandledRejection", (reason: unknown) => {
-      const error = reason instanceof Error ? reason : new Error(String(reason));
+      const error =
+        reason instanceof Error ? reason : new Error(String(reason));
       this.logger.error("Rejet de promesse non capturé", error);
       setTimeout(() => process.exit(1), 1000);
     });
@@ -385,9 +429,9 @@ class LukayaTradingApp implements LukayaApp {
  */
 export const main = async (): Promise<void> => {
   const app = new LukayaTradingApp();
-  
+
   const startResult = await app.start();
-  
+
   if (!startResult.success) {
     console.error("Erreur fatale:", startResult.error?.message);
     process.exit(1);
@@ -398,11 +442,11 @@ export const main = async (): Promise<void> => {
 // Compatible avec Bun et Node.js
 const isMainModule = (() => {
   // Pour Bun
-  if (typeof import.meta !== 'undefined' && 'main' in import.meta) {
+  if (typeof import.meta !== "undefined" && "main" in import.meta) {
     return import.meta.main;
   }
   // Pour Node.js avec ES modules
-  if (typeof process !== 'undefined' && process.argv[1]) {
+  if (typeof process !== "undefined" && process.argv[1]) {
     const currentFile = import.meta.url;
     const mainFile = `file://${process.argv[1]}`;
     return currentFile === mainFile;
