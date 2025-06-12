@@ -508,18 +508,18 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
         // Short entry conditions
         const shortConditions = {
           bearishCrossover,
-          rsiNotOversold: currentRSI > config.rsiOversoldLevel,
+          rsiConfirmsDowntrend: currentRSI < config.rsiOverboughtLevel, // Allow oversold during strong downtrends
           negativeMomentum: currentMomentum < -config.momentumThreshold,
           volumeSignalShort: volumeResult.signal === 'short'
         };
         
         logger.debug(`   Short entry conditions:`);
         logger.debug(`     Bearish crossover: ${shortConditions.bearishCrossover ? '✅' : '❌'}`);
-        logger.debug(`     RSI not oversold: ${shortConditions.rsiNotOversold ? '✅' : '❌'} (${currentRSI.toFixed(1)} > ${config.rsiOversoldLevel})`);
+        logger.debug(`     RSI confirms downtrend: ${shortConditions.rsiConfirmsDowntrend ? '✅' : '❌'} (${currentRSI.toFixed(1)} < ${config.rsiOverboughtLevel})`);
         logger.debug(`     Negative momentum: ${shortConditions.negativeMomentum ? '✅' : '❌'} (${(currentMomentum * 100).toFixed(3)}% < ${(-config.momentumThreshold * 100).toFixed(3)}%)`);
         logger.debug(`     Volume signal short: ${shortConditions.volumeSignalShort ? '✅' : '❌'}`);
         
-        if (shortConditions.bearishCrossover && shortConditions.rsiNotOversold && 
+        if (shortConditions.bearishCrossover && shortConditions.rsiConfirmsDowntrend && 
             shortConditions.negativeMomentum && shortConditions.volumeSignalShort) {
           scalpingSignal = 'short';
           signalStrength = Math.min(0.9, (currentRSI / 100) * 0.4 + Math.abs(currentMomentum) * 0.6);
