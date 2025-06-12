@@ -8,11 +8,16 @@
     "build": "tsc",
     "dev": "bun run src/main.ts",
     "start": "bun run dist/main.js",
-    "test": "jest",
-    "test:integration": "jest --testMatch=\"**/integration/**/*.test.ts\"",
-    "test:unit": "jest --testMatch=\"**/unit/**/*.test.ts\"",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "bun run test/run-tests.ts",
+    "test:unit": "bun run test/run-tests.ts --unit",
+    "test:integration": "bun run test/run-tests.ts --integration",
+    "test:reliability": "bun run test/run-tests.ts --reliability",
+    "test:performance": "bun run test/run-tests.ts --performance",
+    "test:watch": "bun run test/run-tests.ts --watch",
+    "test:coverage": "bun run test/run-tests.ts --coverage",
+    "test:all": "bun run test/run-tests.ts --unit --integration --coverage",
+    "test:quick": "bun test",
+    "test:ci": "bun run test/run-tests.ts --unit --integration --coverage --bail",
     "backtest": "bun run src/backtest/cli/run-backtest.ts"
   },
   "dependencies": {
@@ -23,12 +28,9 @@
   "devDependencies": {
     "@types/bun": "1.0.6",
     "@types/express": "^4.17.22",
-    "@types/jest": "^29.5.14",
     "axios": "^1.9.0",
     "express": "^4.21.2",
-    "jest": "^29.7.0",
     "lodash": "4.17.21",
-    "ts-jest": "^29.3.4",
     "typescript": "5.8.2"
   }
 }

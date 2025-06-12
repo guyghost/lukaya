@@ -8,6 +8,7 @@ import { StrategyType } from "../../shared/enums";
 import { Result } from "../../shared/types";
 import { result } from "../../shared/utils";
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { MarketDataPort } from "../../application/ports/market-data.port";
 
 // Import des stratégies existantes
 import { createRsiDivergenceStrategy } from "../primary/rsi-divergence.strategy";
@@ -124,6 +125,8 @@ export type StrategyConfigMap = {
 export class StrategyFactory {
   private readonly logger = createContextualLogger('StrategyFactory');
 
+  constructor(private marketDataPort?: MarketDataPort) {}
+
   /**
    * Crée une stratégie basée sur son type et sa configuration
    */
@@ -168,7 +171,7 @@ export class StrategyFactory {
           break;
 
         case StrategyType.COORDINATED_MULTI_STRATEGY:
-          strategy = createCoordinatedMultiStrategy(config as CoordinatedMultiStrategyConfig);
+          strategy = createCoordinatedMultiStrategy(config as CoordinatedMultiStrategyConfig, this.marketDataPort);
           break;
 
         default:

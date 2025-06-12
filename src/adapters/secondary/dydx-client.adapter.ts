@@ -23,6 +23,8 @@ import {
   TimeInForce,
 } from "../../domain/models/market.model";
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
+import { RateLimiter, executeWithRateLimit, DYDX_RATE_LIMITER_CONFIG } from "../../shared/utils/rate-limiter";
+import { retryWithBackoff } from "../../shared/utils/parallel-execution-result";
 
 // Default quantum configurations for common markets (fallback)
 const DEFAULT_QUANTUM_CONFIG: Record<string, { atomicResolution: number; stepBaseQuantums: number }> = {
@@ -49,6 +51,9 @@ interface DydxClientContext {
   compositeClient: CompositeClient | null;
   localWallet: LocalWallet | null;
   subaccountClient: SubaccountClient | null;
+  rateLimiter: RateLimiter;
+  errorCount: number;
+  lastErrorTime: number;
 }
 
 // Factory function to create both MarketDataPort and TradingPort implementations
@@ -66,24 +71,40 @@ export const createDydxClient = (config: DydxClientConfig): {
     lastPollingTime: {},
     compositeClient: null,
     localWallet: null,
-    subaccountClient: null
+    subaccountClient: null,
+    rateLimiter: new RateLimiter(DYDX_RATE_LIMITER_CONFIG),
+    errorCount: 0,
+    lastErrorTime: 0
   };
 
   // Helper functions
   const initializeClient = async (): Promise<CompositeClient> => {
     if (!context.compositeClient) {
       logger.debug("Initialisation du client composite dYdX");
-      context.compositeClient = await CompositeClient.connect(config.network);
       
-      // Charger les configurations de marché
+      context.compositeClient = await executeWithRateLimit(
+        async () => {
+          return await CompositeClient.connect(config.network);
+        },
+        context.rateLimiter,
+        'CompositeClient.connect'
+      );
+      
+      // Charger les configurations de marché avec rate limiting
       try {
-        const marketsResponse = await context.compositeClient.indexerClient.markets.getPerpetualMarkets();
-        if (marketsResponse.markets) {
-          for (const [symbol, market] of Object.entries(marketsResponse.markets)) {
-            context.markets.set(symbol, market);
-          }
-          logger.debug(`Chargé ${context.markets.size} marchés depuis dYdX`);
-        }
+        await executeWithRateLimit(
+          async () => {
+            const marketsResponse = await context.compositeClient!.indexerClient.markets.getPerpetualMarkets();
+            if (marketsResponse.markets) {
+              for (const [symbol, market] of Object.entries(marketsResponse.markets)) {
+                context.markets.set(symbol, market);
+              }
+              logger.debug(`Chargé ${context.markets.size} marchés depuis dYdX`);
+            }
+          },
+          context.rateLimiter,
+          'getPerpetualMarkets'
+        );
       } catch (error) {
         logger.error('Échec du chargement des configurations de marché :', error as Error);
       }
@@ -415,44 +436,55 @@ export const createDydxClient = (config: DydxClientConfig): {
   // Private helper functions for market data
   const fetchAndCacheMarketData = async (symbol: string): Promise<MarketData> => {
     try {
-      const client = await getClient();
-      const { indexerClient } = client;
-      
-      // Get market details
-      const marketResponse = await indexerClient.markets.getPerpetualMarkets();
-      if (!marketResponse.markets || !marketResponse.markets[symbol]) {
-        throw new Error(`Market data not found for ${symbol}`);
-      }
-      
-      const market = marketResponse.markets[symbol];
-      
-      // Get candles for historical data analysis
-      const candles = await indexerClient.markets.getPerpetualMarketCandles(market.ticker, '1MIN');
-      
-      // Get orderbook
-      const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
-      
-      // Calculate bid/ask from orderbook
-      const topBid = orderbook?.bids?.[0]?.price || '0';
-      const topAsk = orderbook?.asks?.[0]?.price || '0';
-      
-      const marketData: MarketData = {
-        symbol,
-        price: parseFloat(market.oraclePrice),
-        timestamp: Date.now(),
-        volume: parseFloat(market.volume24H),
-        bid: parseFloat(topBid),
-        ask: parseFloat(topAsk),
-      };
+      const marketData = await executeWithRateLimit(
+        async () => {
+          const client = await getClient();
+          const { indexerClient } = client;
+          
+          // Get market details
+          const marketResponse = await indexerClient.markets.getPerpetualMarkets();
+          if (!marketResponse.markets || !marketResponse.markets[symbol]) {
+            throw new Error(`Market data not found for ${symbol}`);
+          }
+          
+          const market = marketResponse.markets[symbol];
+          
+          // Get candles for historical data analysis
+          const candles = await indexerClient.markets.getPerpetualMarketCandles(market.ticker, '1MIN');
+          
+          // Get orderbook
+          const orderbook = await indexerClient.markets.getPerpetualMarketOrderbook(symbol);
+          
+          // Calculate bid/ask from orderbook
+          const topBid = orderbook?.bids?.[0]?.price || '0';
+          const topAsk = orderbook?.asks?.[0]?.price || '0';
+          
+          return {
+            symbol,
+            price: parseFloat(market.oraclePrice),
+            timestamp: Date.now(),
+            volume: parseFloat(market.volume24H),
+            bid: parseFloat(topBid),
+            ask: parseFloat(topAsk),
+          };
+        },
+        context.rateLimiter,
+        `fetchMarketData-${symbol}`
+      );
 
       context.marketDataCache.set(symbol, marketData);
       return marketData;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      context.errorCount++;
+      context.lastErrorTime = Date.now();
+      
       logger.error(`Error fetching market data for ${symbol}:`, error as Error);
       
       // If we have cached data, return that instead of throwing
       const cachedData = context.marketDataCache.get(symbol);
       if (cachedData) {
+        logger.warn(`Using cached data for ${symbol} due to API error`);
         return cachedData;
       }
       

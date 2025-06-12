@@ -13,6 +13,7 @@ import { ServiceStatus, StrategyType } from "./shared/enums";
 import { Result } from "./shared/types";
 import { result } from "./shared/utils";
 import { AppConfig } from "./shared/interfaces/config.interface";
+import { MarketDataPort } from "./application/ports/market-data.port";
 
 // Interface pour l'application principale
 interface LukayaApp {
@@ -30,6 +31,7 @@ class LukayaTradingApp implements LukayaApp {
   private logger = createContextualLogger('LukayaApp');
   private tradingBot!: TradingBotService; // Définitive assignment assertion
   private config!: AppConfig; // Définitive assignment assertion
+  private marketDataPort!: MarketDataPort; // Ajout du port de données de marché
 
   constructor() {
     this.setupProcessHandlers();
@@ -168,6 +170,9 @@ class LukayaTradingApp implements LukayaApp {
         mnemonic: this.config.dydx.mnemonic,
       });
 
+      // Stocker le port de données de marché pour l'utiliser dans la factory de stratégies
+      this.marketDataPort = marketDataPort;
+
       // Vérifier l'accès au compte
       this.logger.debug("Vérification de l'accès au compte...");
       const accountBalance = await tradingPort.getAccountBalance();
@@ -178,7 +183,7 @@ class LukayaTradingApp implements LukayaApp {
 
       // Créer le service de trading bot
       this.tradingBot = createTradingBotService(
-        marketDataPort,
+        this.marketDataPort,
         tradingPort,
         {
           pollInterval: this.config.trading.pollInterval,
@@ -259,7 +264,7 @@ class LukayaTradingApp implements LukayaApp {
     try {
       this.logger.info("🎯 Configuration des stratégies de trading...");
 
-      const strategyFactory = new StrategyFactory();
+      const strategyFactory = new StrategyFactory(this.marketDataPort);
       let addedStrategies = 0;
 
       for (const strategyConfig of this.config.strategies) {

@@ -1,0 +1,12 @@
+[test]
+# Configuration simple pour les tests avec Bun
+# preload = ["./test/setup.ts"]
+coverage = true
+timeout = 30000
+
+# Variables d'environnement pour les tests
+[test.env]
+NODE_ENV = "test"
+LOG_LEVEL = "error"
+DISABLE_EXTERNAL_CALLS = "true"
+TEST_TIMEOUT = "30000"
