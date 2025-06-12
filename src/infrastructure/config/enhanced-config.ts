@@ -250,6 +250,7 @@ export const loadConfig = (): ConfigType => {
     network: process.env.DYDX_NETWORK || "testnet",
     dydx: {
       mnemonic: process.env.DYDX_MNEMONIC,
+      accountAddress: process.env.DYDX_ADDRESS,
       defaultSubaccountNumber: Number(process.env.DYDX_SUBACCOUNT || 0),
     },
     trading: {

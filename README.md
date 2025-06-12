@@ -2,6 +2,16 @@
 
 Lukaya est un bot de trading automatisé avancé conçu pour le protocole dYdX v4, utilisant une architecture d'acteurs moderne et des stratégies d'analyse technique sophistiquées.
 
+## 📚 Documentation Complète
+
+Une documentation complète avec diagrammes détaillés est maintenant disponible :
+
+- 🚀 **[Guide de Démarrage Rapide](docs/QUICK_START_GUIDE.md)** - Démarrez en moins de 10 minutes
+- 📖 **[Documentation Complète](docs/DOCUMENTATION_COMPLETE.md)** - Guide exhaustif avec tous les détails
+- 🏗️ **[Diagrammes d'Architecture](docs/diagrams/ARCHITECTURE_DIAGRAMS.md)** - Visualisation complète du système
+- 📈 **[Flux de Trading](docs/diagrams/TRADING_FLOWS.md)** - Tous les processus de trading illustrés
+- 📂 **[Index de la Documentation](docs/README.md)** - Navigation dans toute la documentation
+
 ## 🚀 Démarrage Rapide
 
 ```bash
@@ -20,6 +30,7 @@ bun start
 ```
 
 **⚡ Configuration Express** :
+
 ```env
 DYDX_MNEMONIC="votre-phrase-mnémonique"
 DYDX_NETWORK="testnet"  # puis "mainnet"
@@ -68,7 +79,7 @@ Le bot propose plusieurs stratégies de trading avancées :
 
 #### Stratégies Individuelles :
 1. **RSI Divergence** : Détecte les divergences entre prix et RSI pour anticiper les retournements
-2. **Volume Analysis** : Analyse les patterns de volume pour identifier les accumulations/distributions  
+2. **Volume Analysis** : Analyse les patterns de volume pour identifier les accumulations/distributions
 3. **Elliott Wave** : Identifie les structures de vagues pour prédire les mouvements
 4. **Harmonic Pattern** : Reconnaît les patterns harmoniques basés sur Fibonacci
 5. **Scalping Entry/Exit** : Stratégie de scalping rapide basée sur EMA et RSI
@@ -77,7 +88,9 @@ Le bot propose plusieurs stratégies de trading avancées :
 6. **Coordinated Multi-Strategy** : Combine intelligemment Elliott Wave → Harmonic Pattern → Volume Analysis → Scalping pour des signaux de haute qualité avec gestion de confiance et confluence
 
 ```
+
 ACTIVE_STRATEGIES="coordinated-multi-strategy"
+
 ```
 
 ## Stratégies Disponibles
@@ -99,9 +112,11 @@ La **Coordinated Multi-Strategy** est la stratégie la plus avancée du bot. Ell
 
 **Configuration** :
 ```
+
 ACTIVE_STRATEGIES="coordinated-multi-strategy"
 COORDINATED_OVERALL_CONFIDENCE_THRESHOLD=0.45
 COORDINATED_POSITION_SIZE=0.01
+
 ```
 
 ### 📊 Stratégies Individuelles
@@ -109,23 +124,25 @@ COORDINATED_POSITION_SIZE=0.01
 Les stratégies peuvent aussi être utilisées individuellement :
 
 - **rsi-divergence** : Divergences RSI/prix
-- **volume-analysis** : Analyse des spikes de volume  
+- **volume-analysis** : Analyse des spikes de volume
 - **elliott-wave** : Détection des structures de vagues
 - **harmonic-pattern** : Patterns harmoniques Fibonacci
 - **scalping-entry-exit** : Scalping rapide EMA/RSI
 
 ```
+
 DEFAULT_POSITION_SIZE=0.015
-RISK_PER_TRADE=0.01        # Pourcentage du capital à risquer par trade (1%)
-STOP_LOSS_PERCENT=0.02     # Pourcentage de stop loss (2%)
+RISK_PER_TRADE=0.01 # Pourcentage du capital à risquer par trade (1%)
+STOP_LOSS_PERCENT=0.02 # Pourcentage de stop loss (2%)
 DEFAULT_ACCOUNT_SIZE=10000 # Taille du compte en USD pour le calcul du risque
 MAX_CAPITAL_PER_TRADE=0.25 # Pourcentage maximum du capital par trade (25%)
-MAX_FUNDS_PER_ORDER=0.25   # Pourcentage maximum des fonds disponibles par ordre (25%)
-MAX_SLIPPAGE_PERCENT=1.5   # Pourcentage maximal de slippage accepté
-MIN_LIQUIDITY_RATIO=6.0    # Ratio minimum de liquidité par rapport à la taille de l'ordre
-USE_LIMIT_ORDERS=false     # Utilisation des ordres au marché forcée (pour compatibilité dYdX)
-LIMIT_ORDER_BUFFER=0.0005  # Buffer pour les ordres limite (0.05%) (non utilisé si USE_LIMIT_ORDERS=false)
-```
+MAX_FUNDS_PER_ORDER=0.25 # Pourcentage maximum des fonds disponibles par ordre (25%)
+MAX_SLIPPAGE_PERCENT=1.5 # Pourcentage maximal de slippage accepté
+MIN_LIQUIDITY_RATIO=6.0 # Ratio minimum de liquidité par rapport à la taille de l'ordre
+USE_LIMIT_ORDERS=false # Utilisation des ordres au marché forcée (pour compatibilité dYdX)
+LIMIT_ORDER_BUFFER=0.0005 # Buffer pour les ordres limite (0.05%) (non utilisé si USE_LIMIT_ORDERS=false)
+
+````
 
 ### Autres paramètres
 
@@ -136,7 +153,7 @@ POSITION_ANALYSIS_INTERVAL=180000 # Intervalle d'analyse des positions (3 minute
 LOG_LEVEL="debug" # Niveau de log (debug, info, warn, error)
 LOG_TO_FILE="true" # Activer les logs dans un fichier
 LOG_FILE_PATH="./logs/lukaya.log" # Chemin du fichier de logs
-```
+````
 
 ### Gestion des ordres
 
@@ -199,8 +216,9 @@ Le bot utilise une architecture d'acteurs moderne qui offre :
 ### Système de Take Profit Automatique (Règle 3-5-7)
 
 Gestion automatisée des prises de profit avec trois niveaux :
+
 - **3%** : Fermeture de 30% de la position
-- **5%** : Fermeture de 30% supplémentaires  
+- **5%** : Fermeture de 30% supplémentaires
 - **7%** : Fermeture du reste de la position
 
 ## Tests et Backtesting
@@ -244,6 +262,7 @@ bun start
 ## Fonctionnement
 
 Le bot de trading:
+
 1. Se connecte à dYdX avec vos identifiants
 2. Charge les stratégies configurées pour chaque symbole
 3. Surveille les marchés en temps réel
@@ -260,7 +279,7 @@ Le bot de trading:
 Le bot implémente automatiquement la règle 3-5-7 pour optimiser les prises de profit :
 
 1. **Premier palier (3%)** : Fermeture de 30% de la position
-2. **Deuxième palier (5%)** : Fermeture de 30% supplémentaires  
+2. **Deuxième palier (5%)** : Fermeture de 30% supplémentaires
 3. **Troisième palier (7%)** : Fermeture du reste de la position
 
 ### Configuration
@@ -309,6 +328,7 @@ bun dev
 ## Monitoring et Logs
 
 Le bot génère des logs détaillés pour suivre :
+
 - ✅ Ouverture/fermeture des trades avec émojis (🚀💰📉)
 - ✅ Performance par stratégie en temps réel
 - ✅ PNL non réalisé des positions ouvertes

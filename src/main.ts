@@ -12,7 +12,7 @@ import {
   initializeLogger,
   createContextualLogger,
 } from "./infrastructure/logging/enhanced-logger";
-import { createDydxClient } from "./adapters/secondary/dydx-client.adapter";
+import { createEnhancedDydxClient } from "./adapters/secondary/enhanced-dydx-client.adapter";
 import {
   createTradingBotService,
   TradingBotService,
@@ -186,10 +186,23 @@ class LukayaTradingApp implements LukayaApp {
     try {
       this.logger.debug("🔧 Initialisation des services...");
 
-      // Initialiser le client dYdX
-      const { marketDataPort, tradingPort } = createDydxClient({
+      // Initialiser le client dYdX avec gestion intelligente des rate limits
+      const { marketDataPort, tradingPort } = await createEnhancedDydxClient({
         network: getNetworkFromString(this.config.network),
         mnemonic: this.config.dydx.mnemonic,
+        accountAddress: this.config.dydx.accountAddress,
+        // Configuration optimisée pour éviter les rate limits
+        queueConfig: {
+          maxConcurrentRequests: 3,
+          minRequestDelay: 200,
+          enableAdaptiveRateLimit: true,
+          smoothingFactor: 0.3,
+        },
+        rateLimiterConfig: {
+          maxRequests: 10,
+          windowMs: 60000,
+          enableTokenBucket: true,
+        },
       });
 
       // Stocker le port de données de marché pour l'utiliser dans la factory de stratégies

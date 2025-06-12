@@ -18,7 +18,8 @@
     "test:all": "bun run test/run-tests.ts --unit --integration --coverage",
     "test:quick": "bun test",
     "test:ci": "bun run test/run-tests.ts --unit --integration --coverage --bail",
-    "backtest": "bun run src/backtest/cli/run-backtest.ts"
+    "backtest": "bun run src/backtest/cli/run-backtest.ts",
+    "test:rate-limit": "bun run test/enhanced-client/rate-limit-test.ts"
   },
   "dependencies": {
     "@dydxprotocol/v4-client-js": "1.21.3",

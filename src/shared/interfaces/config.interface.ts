@@ -8,6 +8,7 @@ export interface AppConfig {
   network: "mainnet" | "testnet";
   dydx: {
     mnemonic?: string;
+    accountAddress?: string;
     defaultSubaccountNumber: number;
   };
   trading: {
@@ -46,7 +47,10 @@ export interface AppConfig {
     strategyManager: {
       autoAdjustWeights: boolean;
       maxActiveStrategies: number;
-      conflictResolutionMode: 'performance_weighted' | 'risk_adjusted' | 'consensus';
+      conflictResolutionMode:
+        | "performance_weighted"
+        | "risk_adjusted"
+        | "consensus";
       optimizationEnabled: boolean;
     };
     performanceTracker: {

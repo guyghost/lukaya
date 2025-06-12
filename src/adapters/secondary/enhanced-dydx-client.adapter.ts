@@ -1,5 +1,5 @@
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
-import { DydxClient, DydxClientConfig, createDydxClient } from "./dydx-client.adapter";
+import { DydxClientConfig, createDydxClient } from "./dydx-client.adapter";
 import {
   APIQueueManager,
   RequestPriority,
@@ -14,11 +14,11 @@ import {
 } from "../../shared/utils/rate-limiter";
 import {
   MarketData,
-  OrderSignal,
-  OrderStatus,
-  Position,
-  AccountInfo,
-} from "../../domain/trading.types";
+  Order,
+  OrderParams,
+} from "../../domain/models/market.model";
+import { MarketDataPort } from "../../application/ports/market-data.port";
+import { TradingPort } from "../../application/ports/trading.port";
 
 const logger = createContextualLogger("EnhancedDydxClient");
 
@@ -26,6 +26,7 @@ const logger = createContextualLogger("EnhancedDydxClient");
  * Enhanced configuration for dYdX client with queuing options
  */
 export interface EnhancedDydxClientConfig extends DydxClientConfig {
+  accountAddress?: string;
   queueConfig?: Partial<APIQueueConfig>;
   rateLimiterConfig?: Partial<RateLimiterConfig>;
   enableMonitoring?: boolean;
@@ -63,7 +64,18 @@ export interface ClientMonitoringData {
 /**
  * Enhanced dYdX client with intelligent API queue management
  */
-export interface EnhancedDydxClient extends DydxClient {
+export interface EnhancedDydxClient {
+  marketDataPort: MarketDataPort & {
+    // Batch operations
+    batchGetMarketData(symbols: string[]): Promise<Map<string, MarketData>>;
+  };
+
+  tradingPort: TradingPort & {
+    // Batch operations
+    batchPlaceOrders(orders: OrderParams[]): Promise<Order[]>;
+    batchCancelOrders(orderIds: string[]): Promise<boolean[]>;
+  };
+
   // Monitoring methods
   getMonitoringData(): ClientMonitoringData;
   resetStatistics(): void;
@@ -72,17 +84,13 @@ export interface EnhancedDydxClient extends DydxClient {
   clearQueues(): void;
   pauseRequests(): void;
   resumeRequests(): void;
-
-  // Batch operations
-  batchGetMarketData(symbols: string[]): Promise<Map<string, MarketData>>;
-  batchGetOrderStatus(orderIds: string[]): Promise<Map<string, OrderStatus>>;
 }
 
 /**
  * Create an enhanced dYdX client with intelligent queue management
  */
 export async function createEnhancedDydxClient(
-  config: EnhancedDydxClientConfig
+  config: EnhancedDydxClientConfig,
 ): Promise<EnhancedDydxClient> {
   logger.info("Creating enhanced dYdX client with intelligent queuing");
 
@@ -114,7 +122,7 @@ export async function createEnhancedDydxClient(
 
   // Monitoring state
   let isPaused = false;
-  let monitoringInterval: NodeJS.Timeout | null = null;
+  let monitoringInterval: NodeJS.Timer | null = null;
 
   /**
    * Update API health based on request results
@@ -136,17 +144,18 @@ export async function createEnhancedDydxClient(
 
     // Keep only recent errors (last 5 minutes)
     apiHealth.errorHistory = apiHealth.errorHistory.filter(
-      (e) => now - e.timestamp < 300000
+      (e) => now - e.timestamp < 300000,
     );
 
     // Calculate error rate
     const recentErrors = apiHealth.errorHistory.filter(
-      (e) => now - e.timestamp < 60000
+      (e) => now - e.timestamp < 60000,
     );
     apiHealth.errorRate = recentErrors.length / 60; // Errors per second
 
     // Update health status
-    apiHealth.isHealthy = apiHealth.consecutiveErrors < 5 && apiHealth.errorRate < 0.5;
+    apiHealth.isHealthy =
+      apiHealth.consecutiveErrors < 5 && apiHealth.errorRate < 0.5;
     apiHealth.lastHealthCheck = now;
   };
 
@@ -157,7 +166,7 @@ export async function createEnhancedDydxClient(
     fn: () => Promise<T>,
     type: RequestType,
     priority: RequestPriority,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
   ): Promise<T> => {
     if (isPaused) {
       return Promise.reject(new Error("Client is paused"));
@@ -176,7 +185,7 @@ export async function createEnhancedDydxClient(
           throw error;
         }
       },
-      metadata
+      metadata,
     );
   };
 
@@ -206,7 +215,7 @@ export async function createEnhancedDydxClient(
         // Speed up if everything is working well
         queueManager["config"].minRequestDelay = Math.max(
           queueManager["config"].minRequestDelay * 0.9,
-          100
+          100,
         );
       }
     }, intervalMs);
@@ -229,125 +238,45 @@ export async function createEnhancedDydxClient(
   // Start monitoring
   startMonitoring();
 
-  // Create the enhanced client
-  const enhancedClient: EnhancedDydxClient = {
-    // Delegate all base methods with queue wrapping
-    ...baseClient,
-
-    // Override methods with queue management
-    connect: () =>
+  // Create enhanced marketDataPort
+  const enhancedMarketDataPort = {
+    subscribeToMarketData: (symbol: string) =>
       wrapWithQueue(
-        () => baseClient.connect(),
-        RequestType.ACCOUNT_INFO,
-        RequestPriority.CRITICAL
-      ),
-
-    disconnect: async () => {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-      }
-      queueManager.stop();
-      await baseClient.disconnect();
-    },
-
-    // Market data with intelligent caching and batching
-    subscribeToMarket: (symbol: string) =>
-      wrapWithQueue(
-        () => baseClient.subscribeToMarket(symbol),
+        () => baseClient.marketDataPort.subscribeToMarketData(symbol),
         RequestType.MARKET_DATA,
         RequestPriority.NORMAL,
-        { symbol }
+        { symbol },
       ),
 
-    unsubscribeFromMarket: (symbol: string) =>
-      wrapWithQueue(
-        () => baseClient.unsubscribeFromMarket(symbol),
-        RequestType.MARKET_DATA,
-        RequestPriority.LOW,
-        { symbol }
-      ),
+    unsubscribeFromMarketData: (symbol: string) =>
+      baseClient.marketDataPort.unsubscribeFromMarketData(symbol),
 
     getLatestMarketData: (symbol: string) =>
       wrapWithQueue(
-        () => baseClient.getLatestMarketData(symbol),
+        () => baseClient.marketDataPort.getLatestMarketData(symbol),
         RequestType.MARKET_DATA,
         RequestPriority.NORMAL,
-        { symbol }
+        { symbol },
       ),
 
     getHistoricalMarketData: (symbol: string, limit?: number) =>
       wrapWithQueue(
-        () => baseClient.getHistoricalMarketData(symbol, limit),
+        () => baseClient.marketDataPort.getHistoricalMarketData(symbol, limit),
         RequestType.HISTORICAL_DATA,
         RequestPriority.LOW,
-        { symbol, limit }
-      ),
-
-    // Order management with high priority
-    placeOrder: (signal: OrderSignal) =>
-      wrapWithQueue(
-        () => baseClient.placeOrder(signal),
-        RequestType.ORDER_PLACEMENT,
-        RequestPriority.CRITICAL,
-        { orderType: signal.type, symbol: signal.symbol }
-      ),
-
-    cancelOrder: (orderId: string) =>
-      wrapWithQueue(
-        () => baseClient.cancelOrder(orderId),
-        RequestType.ORDER_PLACEMENT,
-        RequestPriority.HIGH,
-        { orderId }
-      ),
-
-    getOrderStatus: (orderId: string) =>
-      wrapWithQueue(
-        () => baseClient.getOrderStatus(orderId),
-        RequestType.ORDER_STATUS,
-        RequestPriority.NORMAL,
-        { orderId }
-      ),
-
-    getOpenOrders: (symbol?: string) =>
-      wrapWithQueue(
-        () => baseClient.getOpenOrders(symbol),
-        RequestType.ORDER_STATUS,
-        RequestPriority.NORMAL,
-        { symbol }
-      ),
-
-    // Position management
-    getPositions: () =>
-      wrapWithQueue(
-        () => baseClient.getPositions(),
-        RequestType.ACCOUNT_INFO,
-        RequestPriority.HIGH
-      ),
-
-    getPosition: (symbol: string) =>
-      wrapWithQueue(
-        () => baseClient.getPosition(symbol),
-        RequestType.ACCOUNT_INFO,
-        RequestPriority.HIGH,
-        { symbol }
-      ),
-
-    // Account information
-    getAccountInfo: () =>
-      wrapWithQueue(
-        () => baseClient.getAccountInfo(),
-        RequestType.ACCOUNT_INFO,
-        RequestPriority.NORMAL
+        { symbol, limit },
       ),
 
     // Batch operations for efficiency
-    batchGetMarketData: async (symbols: string[]): Promise<Map<string, MarketData>> => {
+    batchGetMarketData: async (
+      symbols: string[],
+    ): Promise<Map<string, MarketData>> => {
       logger.info(`Batch fetching market data for ${symbols.length} symbols`);
 
       const results = new Map<string, MarketData>();
-      const errors: { symbol: string; error: Error }[] = [];
+      const errors: Array<{ symbol: string; error: Error }> = [];
 
-      // Process in parallel with limited concurrency
+      // Process in batches of 5 to avoid overwhelming the API
       const batchSize = 5;
       for (let i = 0; i < symbols.length; i += batchSize) {
         const batch = symbols.slice(i, i + batchSize);
@@ -355,13 +284,19 @@ export async function createEnhancedDydxClient(
         await Promise.all(
           batch.map(async (symbol) => {
             try {
-              const data = await enhancedClient.getLatestMarketData(symbol);
-              results.set(symbol, data);
+              const data =
+                await enhancedMarketDataPort.getLatestMarketData(symbol);
+              if (data) {
+                results.set(symbol, data);
+              }
             } catch (error) {
               errors.push({ symbol, error: error as Error });
-              logger.error(`Failed to fetch market data for ${symbol}`, error as Error);
+              logger.error(
+                `Failed to fetch market data for ${symbol}`,
+                error as Error,
+              );
             }
-          })
+          }),
         );
 
         // Add a small delay between batches
@@ -376,26 +311,88 @@ export async function createEnhancedDydxClient(
 
       return results;
     },
+  };
 
-    batchGetOrderStatus: async (orderIds: string[]): Promise<Map<string, OrderStatus>> => {
-      logger.info(`Batch fetching status for ${orderIds.length} orders`);
+  // Create enhanced tradingPort
+  const enhancedTradingPort = {
+    placeOrder: (orderParams: OrderParams) =>
+      wrapWithQueue(
+        () => baseClient.tradingPort.placeOrder(orderParams),
+        RequestType.ORDER_PLACEMENT,
+        RequestPriority.CRITICAL,
+        { orderType: orderParams.type, symbol: orderParams.symbol },
+      ),
 
-      const results = new Map<string, OrderStatus>();
+    cancelOrder: (orderId: string) =>
+      wrapWithQueue(
+        () => baseClient.tradingPort.cancelOrder(orderId),
+        RequestType.ORDER_PLACEMENT,
+        RequestPriority.HIGH,
+        { orderId },
+      ),
 
-      // Use queue with batching
-      await Promise.all(
-        orderIds.map(async (orderId) => {
-          try {
-            const status = await enhancedClient.getOrderStatus(orderId);
-            results.set(orderId, status);
-          } catch (error) {
-            logger.error(`Failed to fetch status for order ${orderId}`, error as Error);
-          }
-        })
-      );
+    getOrder: (orderId: string) =>
+      wrapWithQueue(
+        () => baseClient.tradingPort.getOrder(orderId),
+        RequestType.ORDER_STATUS,
+        RequestPriority.NORMAL,
+        { orderId },
+      ),
+
+    getOpenOrders: (symbol?: string) =>
+      wrapWithQueue(
+        () => baseClient.tradingPort.getOpenOrders(symbol),
+        RequestType.ORDER_STATUS,
+        RequestPriority.NORMAL,
+        { symbol },
+      ),
+
+    getAccountBalance: () =>
+      wrapWithQueue(
+        () => baseClient.tradingPort.getAccountBalance(),
+        RequestType.ACCOUNT_INFO,
+        RequestPriority.NORMAL,
+      ),
+
+    // Batch operations
+    batchPlaceOrders: async (orders: OrderParams[]): Promise<Order[]> => {
+      logger.info(`Batch placing ${orders.length} orders`);
+      const results: Order[] = [];
+
+      for (const order of orders) {
+        try {
+          const placedOrder = await enhancedTradingPort.placeOrder(order);
+          results.push(placedOrder);
+        } catch (error) {
+          logger.error(`Failed to place order`, error as Error);
+        }
+      }
 
       return results;
     },
+
+    batchCancelOrders: async (orderIds: string[]): Promise<boolean[]> => {
+      logger.info(`Batch canceling ${orderIds.length} orders`);
+      const results: boolean[] = [];
+
+      for (const orderId of orderIds) {
+        try {
+          const cancelled = await enhancedTradingPort.cancelOrder(orderId);
+          results.push(cancelled);
+        } catch (error) {
+          logger.error(`Failed to cancel order ${orderId}`, error as Error);
+          results.push(false);
+        }
+      }
+
+      return results;
+    },
+  };
+
+  // Create the enhanced client
+  const enhancedClient: EnhancedDydxClient = {
+    marketDataPort: enhancedMarketDataPort,
+    tradingPort: enhancedTradingPort,
 
     // Monitoring and management methods
     getMonitoringData,
