@@ -302,11 +302,11 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     
     // Check if we can proceed with volume analysis
     const hasPatternConfirmation = patternResult.confidence >= config.patternConfidenceThreshold;
-    const hasElliottBias = elliottResult.confidence >= 0.5 && elliottResult.signal; // Lower threshold for volume analysis
+    const hasElliottBias = elliottResult.confidence >= config.trendConfidenceThreshold && elliottResult.signal; // Use configured threshold
     const canAnalyze = hasPatternConfirmation || hasElliottBias;
     
     if (!canAnalyze) {
-      logger.debug(`📊 Volume Analysis: Neither pattern confirmation (${patternResult.confidence.toFixed(3)} < ${config.patternConfidenceThreshold}) nor Elliott bias (${elliottResult.confidence.toFixed(3)} < 0.5) available`);
+      logger.debug(`📊 Volume Analysis: Neither pattern confirmation (${patternResult.confidence.toFixed(3)} < ${config.patternConfidenceThreshold}) nor Elliott bias (${elliottResult.confidence.toFixed(3)} < ${config.trendConfidenceThreshold}) available`);
       return { confidence: 0, strength: 0 };
     }
     
