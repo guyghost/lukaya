@@ -119,28 +119,31 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
     // Calculer la force de la tendance
     state.trendStrength = calculateTrendStrength(state.fastEmaHistory, state.slowEmaHistory);
 
-    // Cooldown pour éviter trop de signaux consécutifs
-    const signalCooldown = 2; // candles (réduit pour scalping)
+    // Cooldown pour éviter trop de signaux consécutifs - RÉDUIT pour plus d'opportunités
+    const signalCooldown = 1; // candles (réduit de 2 à 1 pour plus de réactivité)
     const canGenerateSignal = currentCandle - state.lastSignalCandle > signalCooldown;
 
     if (!canGenerateSignal) {
       return null;
     }
 
-    // Signaux d'entrée selon la stratégie décrite
+    // Signaux d'entrée selon la stratégie décrite - CONDITIONS ASSOUPLIES
     if (state.position === "none") {
-      // SIGNAL LONG: 
-      // 1. Prix au-dessus des deux EMAs (20 et 50)
-      // 2. RSI (7) a été sous 30 (survente) et commence à remonter
-      // 3. Attendre une bougie verte qui clôture au-dessus des EMAs
-      if (currentPrice > fastEma && 
-          currentPrice > slowEma && 
-          fastEma > slowEma && // Tendance haussière confirmée
-          previousRsi <= config.rsiOversoldLevel && 
-          currentRsi > previousRsi && // RSI remonte après survente
-          currentRsi < config.rsiOverboughtLevel) {
+      // SIGNAL LONG - CONDITIONS SIMPLIFIÉES:
+      // 1. Prix au-dessus de l'EMA rapide (8) OU momentum positif
+      // 2. RSI pas trop haut (< 75) et pas en baisse rapide
+      // 3. Pas besoin d'attendre la confirmation de tendance complète
+      const bullishMomentum = state.momentumHistory.length > 0 && 
+                             state.momentumHistory[state.momentumHistory.length - 1] > config.momentumThreshold;
+      const rsiOkForLong = currentRsi < config.rsiOverboughtLevel + 5; // Marge de 5 points
+      const priceAboveFast = currentPrice > fastEma;
+      const rsiRecovering = currentRsi > previousRsi || currentRsi < config.rsiOversoldLevel + 10;
+      
+      if ((priceAboveFast || bullishMomentum) && 
+          rsiOkForLong && 
+          rsiRecovering) {
         
-        logger.info(`Signal d'entrée LONG détecté sur ${data.symbol} - EMA 20/50 + RSI survente/remontée`);
+        logger.info(`Signal d'entrée LONG détecté sur ${data.symbol} - Conditions assouplies: prix>${fastEma.toFixed(2)}, RSI=${currentRsi.toFixed(1)}, momentum=${bullishMomentum}`);
         state.position = "long";
         state.lastEntryPrice = currentPrice;
         state.entryCandle = currentCandle;
@@ -150,22 +153,25 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
           type: "entry",
           direction: "long",
           price: currentPrice,
-          reason: `Scalping LONG: Prix>${fastEma.toFixed(2)}>${slowEma.toFixed(2)}, RSI ${previousRsi.toFixed(1)}->${currentRsi.toFixed(1)}`,
+          reason: `Scalping LONG assouplí: Prix>${fastEma.toFixed(2)}, RSI ${currentRsi.toFixed(1)}, momentum=${bullishMomentum}`,
         };
       }
       
-      // SIGNAL SHORT:
-      // 1. Prix en-dessous des deux EMAs (20 et 50) 
-      // 2. RSI (7) a été au-dessus de 70 (surachat) et commence à baisser
-      // 3. Attendre une bougie rouge qui clôture en-dessous des EMAs
-      else if (currentPrice < fastEma && 
-               currentPrice < slowEma && 
-               fastEma < slowEma && // Tendance baissière confirmée
-               previousRsi >= config.rsiOverboughtLevel && 
-               currentRsi < previousRsi && // RSI baisse après surachat
-               currentRsi > config.rsiOversoldLevel) {
+      // SIGNAL SHORT - CONDITIONS SIMPLIFIÉES:
+      // 1. Prix en-dessous de l'EMA rapide (8) OU momentum négatif
+      // 2. RSI pas trop bas (> 25) et pas en montée rapide  
+      // 3. Pas besoin d'attendre la confirmation de tendance complète
+      const bearishMomentum = state.momentumHistory.length > 0 && 
+                             state.momentumHistory[state.momentumHistory.length - 1] < -config.momentumThreshold;
+      const rsiOkForShort = currentRsi > config.rsiOversoldLevel - 5; // Marge de 5 points
+      const priceBelowFast = currentPrice < fastEma;
+      const rsiWeakening = currentRsi < previousRsi || currentRsi > config.rsiOverboughtLevel - 10;
+      
+      if ((priceBelowFast || bearishMomentum) && 
+          rsiOkForShort && 
+          rsiWeakening) {
         
-        logger.info(`Signal d'entrée SHORT détecté sur ${data.symbol} - EMA 20/50 + RSI surachat/baisse`);
+        logger.info(`Signal d'entrée SHORT détecté sur ${data.symbol} - Conditions assouplies: prix<${fastEma.toFixed(2)}, RSI=${currentRsi.toFixed(1)}, momentum=${bearishMomentum}`);
         state.position = "short";
         state.lastEntryPrice = currentPrice;
         state.entryCandle = currentCandle;
@@ -175,7 +181,7 @@ export const createScalpingEntryExitStrategy = (config: ScalpingEntryExitConfig)
           type: "entry",
           direction: "short",
           price: currentPrice,
-          reason: `Scalping SHORT: Prix<${fastEma.toFixed(2)}<${slowEma.toFixed(2)}, RSI ${previousRsi.toFixed(1)}->${currentRsi.toFixed(1)}`,
+          reason: `Scalping SHORT assouplí: Prix<${fastEma.toFixed(2)}, RSI ${currentRsi.toFixed(1)}, momentum=${bearishMomentum}`,
         };
       }
     }

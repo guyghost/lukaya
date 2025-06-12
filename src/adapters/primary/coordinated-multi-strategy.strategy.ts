@@ -14,7 +14,7 @@ import { Strategy, StrategySignal, StrategyConfig } from "../../domain/models/st
 import { MarketData, OrderParams, OrderSide, OrderType, TimeInForce } from "../../domain/models/market.model";
 import { result } from "../../shared/utils";
 import { createContextualLogger } from "../../infrastructure/logging/enhanced-logger";
-import { SMA, EMA, RSI } from 'technicalindicators';
+import { SMA, EMA, RSI, MACD, BollingerBands } from 'technicalindicators';
 
 export interface CoordinatedMultiStrategyConfig {
   symbol: string;
@@ -122,14 +122,51 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
   };
   
   /**
+   * Enhanced technical indicators for better signal quality
+   */
+  const calculateMACD = (values: number[]): { macd: number; signal: number; histogram: number } | null => {
+    if (values.length < 26) return null;
+    const macdResult = MACD.calculate({
+      values,
+      fastPeriod: 12,
+      slowPeriod: 26,
+      signalPeriod: 9,
+      SimpleMAOscillator: false,
+      SimpleMASignal: false
+    });
+    
+    if (macdResult.length === 0) return null;
+    const latest = macdResult[macdResult.length - 1];
+    return {
+      macd: latest.MACD || 0,
+      signal: latest.signal || 0,
+      histogram: latest.histogram || 0
+    };
+  };
+
+  const calculateBollingerBands = (values: number[], period: number = 20, stdDev: number = 2): { upper: number; middle: number; lower: number } | null => {
+    if (values.length < period) return null;
+    const bbResult = BollingerBands.calculate({
+      period,
+      values,
+      stdDev
+    });
+    
+    if (bbResult.length === 0) return null;
+    return bbResult[bbResult.length - 1];
+  };
+
+  /**
    * Step 1: Elliott Wave Trend Identification
    * Analyzes the broader trend using Elliott Wave principles
    */
   const analyzeElliottWave = (data: MarketData[]): StrategyStepResult => {
     logger.debug(`📈 Elliott Wave: Starting analysis with ${data.length} data points`);
     
-    if (data.length < config.waveDetectionLength) {
-      logger.debug(`📈 Elliott Wave: Insufficient data (${data.length} < ${config.waveDetectionLength})`);
+    // Réduire les exigences minimales de données
+    const minDataPoints = Math.max(50, config.waveDetectionLength * 0.6);
+    if (data.length < minDataPoints) {
+      logger.debug(`📈 Elliott Wave: Insufficient data (${data.length} < ${minDataPoints})`);
       return { confidence: 0, strength: 0 };
     }
     
@@ -175,13 +212,20 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       logger.debug(`📈 Elliott Wave: MIXED signals - no clear trend direction`);
     }
     
-    // Calculate confidence based on wave structure and momentum alignment
+    // Calculate confidence based on wave structure and momentum alignment - Système plus tolérant
     let confidence = 0;
-    if (waveCount >= 3 && trendDirection) {
-      confidence = Math.min(0.9, trendStrength * 0.7 + (waveCount / 10) * 0.3);
-      logger.debug(`📈 Elliott Wave: Confidence calculation: ${trendStrength.toFixed(3)} * 0.7 + ${waveCount}/10 * 0.3 = ${confidence.toFixed(3)}`);
+    if (waveCount >= 1 && trendDirection) {
+      // Confiance basée sur la force de la tendance même avec peu de vagues
+      confidence = Math.min(0.8, trendStrength * 0.8 + (Math.min(waveCount, 5) / 5) * 0.2);
+      logger.debug(`📈 Elliott Wave: Confidence calculation: ${trendStrength.toFixed(3)} * 0.8 + ${Math.min(waveCount, 5)}/5 * 0.2 = ${confidence.toFixed(3)}`);
+    } else if (trendDirection) {
+      // Donner une confiance minimale basée sur le momentum même sans vagues claires
+      confidence = Math.min(0.4, trendStrength * 0.5);
+      logger.debug(`📈 Elliott Wave: Minimal confidence based on trend strength: ${confidence.toFixed(3)}`);
     } else {
       logger.debug(`📈 Elliott Wave: Low confidence due to insufficient waves (${waveCount}) or unclear trend`);
+      // Au lieu de 0, donner une confiance très faible
+      confidence = 0.05;
     }
     
     logger.info(`📈 Elliott Wave Complete: direction=${trendDirection || 'none'}, strength=${trendStrength.toFixed(3)}, confidence=${confidence.toFixed(3)}, waves=${waveCount}`);
@@ -208,14 +252,17 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     logger.debug(`🎯 Harmonic Pattern: Starting analysis with ${data.length} data points`);
     logger.debug(`🎯 Harmonic Pattern: Elliott Wave input - confidence: ${elliottResult.confidence.toFixed(3)}, signal: ${elliottResult.signal || 'none'}`);
     
-    if (data.length < config.detectionLength || elliottResult.confidence < config.trendConfidenceThreshold) {
-      if (data.length < config.detectionLength) {
-        logger.debug(`🎯 Harmonic Pattern: Insufficient data (${data.length} < ${config.detectionLength})`);
-      }
-      if (elliottResult.confidence < config.trendConfidenceThreshold) {
-        logger.debug(`🎯 Harmonic Pattern: Elliott Wave confidence too low (${elliottResult.confidence.toFixed(3)} < ${config.trendConfidenceThreshold})`);
-      }
+    // Réduire les exigences et permettre l'analyse indépendante
+    const minDataLength = Math.max(100, config.detectionLength * 0.7);
+    if (data.length < minDataLength) {
+      logger.debug(`🎯 Harmonic Pattern: Insufficient data (${data.length} < ${minDataLength})`);
       return { confidence: 0, strength: 0 };
+    }
+    
+    // Permettre l'analyse même avec Elliott Wave faible, mais avec poids réduit
+    const elliottBias = elliottResult.confidence >= config.trendConfidenceThreshold ? 1.0 : 0.5;
+    if (elliottResult.confidence < config.trendConfidenceThreshold) {
+      logger.debug(`🎯 Harmonic Pattern: Elliott Wave confidence low (${elliottResult.confidence.toFixed(3)} < ${config.trendConfidenceThreshold}), proceeding with reduced weight`);
     }
     
     const recentData = data.slice(-config.detectionLength);
@@ -251,9 +298,20 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       }
     }
     
-    if (!bestPattern || maxScore < config.patternConfirmationPercentage / 100) {
-      logger.debug(`🎯 Harmonic Pattern: No valid pattern found. Best score: ${maxScore.toFixed(3)}, required: ${(config.patternConfirmationPercentage / 100).toFixed(3)}`);
-      return { confidence: 0, strength: 0 };
+    // Seuil de confirmation plus tolérant
+    const adjustedConfirmationThreshold = (config.patternConfirmationPercentage / 100) * 0.8;
+    
+    if (!bestPattern || maxScore < adjustedConfirmationThreshold) {
+      logger.debug(`🎯 Harmonic Pattern: No strong pattern found. Best score: ${maxScore.toFixed(3)}, required: ${adjustedConfirmationThreshold.toFixed(3)}`);
+      
+      // Au lieu de retourner 0, donner une confiance minimale basée sur Elliott Wave
+      const fallbackConfidence = Math.min(0.15, elliottResult.confidence * 0.3 * elliottBias);
+      return { 
+        confidence: fallbackConfidence, 
+        strength: 0,
+        signal: elliottResult.signal,
+        metadata: { fallbackMode: true, elliottBias }
+      };
     }
     
     logger.debug(`🎯 Harmonic Pattern: Best pattern selected: ${bestPattern.type} with score ${maxScore.toFixed(3)}`);
@@ -300,14 +358,15 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       return { confidence: 0, strength: 0 };
     }
     
-    // Check if we can proceed with volume analysis
+    // Check if we can proceed with volume analysis - Critères plus souples
     const hasPatternConfirmation = patternResult.confidence >= config.patternConfidenceThreshold;
-    const hasElliottBias = elliottResult.confidence >= config.trendConfidenceThreshold && elliottResult.signal; // Use configured threshold
-    const canAnalyze = hasPatternConfirmation || hasElliottBias;
+    const hasElliottBias = elliottResult.confidence >= (config.trendConfidenceThreshold * 0.5) && elliottResult.signal; // Seuil réduit de 50%
+    const hasMinimalSignal = (patternResult.confidence > 0.05 || elliottResult.confidence > 0.05);
+    const canAnalyze = hasPatternConfirmation || hasElliottBias || hasMinimalSignal;
     
     if (!canAnalyze) {
-      logger.debug(`📊 Volume Analysis: Neither pattern confirmation (${patternResult.confidence.toFixed(3)} < ${config.patternConfidenceThreshold}) nor Elliott bias (${elliottResult.confidence.toFixed(3)} < ${config.trendConfidenceThreshold}) available`);
-      return { confidence: 0, strength: 0 };
+      logger.debug(`📊 Volume Analysis: No signals available for analysis`);
+      return { confidence: 0.05, strength: 0 }; // Confiance minimale au lieu de 0
     }
     
     // Use the best available signal (prefer pattern, fallback to Elliott)
@@ -424,14 +483,15 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     logger.debug(`⚡ Scalping Analysis: Current position: ${currentPosition}`);
     
     const requiredDataLength = Math.max(config.fastEmaPeriod, config.slowEmaPeriod, config.rsiPeriod);
-    if (data.length < requiredDataLength || volumeResult.confidence < config.volumeConfidenceThreshold) {
-      if (data.length < requiredDataLength) {
-        logger.debug(`⚡ Scalping Analysis: Insufficient data (${data.length} < ${requiredDataLength})`);
-      }
-      if (volumeResult.confidence < config.volumeConfidenceThreshold) {
-        logger.debug(`⚡ Scalping Analysis: Volume confidence too low (${volumeResult.confidence.toFixed(3)} < ${config.volumeConfidenceThreshold})`);
-      }
+    if (data.length < requiredDataLength) {
+      logger.debug(`⚡ Scalping Analysis: Insufficient data (${data.length} < ${requiredDataLength})`);
       return { confidence: 0, strength: 0 };
+    }
+    
+    // Permettre l'analyse scalping même avec volume faible, mais avec poids réduit
+    const volumeWeight = volumeResult.confidence >= config.volumeConfidenceThreshold ? 1.0 : 0.6;
+    if (volumeResult.confidence < config.volumeConfidenceThreshold) {
+      logger.debug(`⚡ Scalping Analysis: Volume confidence low (${volumeResult.confidence.toFixed(3)} < ${config.volumeConfidenceThreshold}), proceeding with reduced weight`);
     }
     
     const prices = data.map(d => d.price);
@@ -485,47 +545,53 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     if (currentPosition === 'none') {
       logger.debug(`   No current position - checking entry signals...`);
       
-      // Long entry conditions
+      // Long entry conditions - TRÈS flexible: 2 critères sur 4 suffisent maintenant
       const longConditions = {
         bullishCrossover,
-        rsiNotOverbought: currentRSI < config.rsiOverboughtLevel,
-        positiveMomentum: currentMomentum > config.momentumThreshold,
+        rsiNotOverbought: currentRSI < config.rsiOverboughtLevel + 10, // Marge élargie de 10 points
+        positiveMomentum: currentMomentum > config.momentumThreshold * 0.5, // Seuil réduit de 50%
         volumeSignalLong: volumeResult.signal === 'long'
       };
       
-      logger.debug(`   Long entry conditions:`);
+      logger.debug(`   Long entry conditions (ASSOUPLIES):`);
       logger.debug(`     Bullish crossover: ${longConditions.bullishCrossover ? '✅' : '❌'}`);
-      logger.debug(`     RSI not overbought: ${longConditions.rsiNotOverbought ? '✅' : '❌'} (${currentRSI.toFixed(1)} < ${config.rsiOverboughtLevel})`);
-      logger.debug(`     Positive momentum: ${longConditions.positiveMomentum ? '✅' : '❌'} (${(currentMomentum * 100).toFixed(3)}% > ${(config.momentumThreshold * 100).toFixed(3)}%)`);
+      logger.debug(`     RSI not overbought: ${longConditions.rsiNotOverbought ? '✅' : '❌'} (${currentRSI.toFixed(1)} < ${config.rsiOverboughtLevel + 10})`);
+      logger.debug(`     Positive momentum: ${longConditions.positiveMomentum ? '✅' : '❌'} (${(currentMomentum * 100).toFixed(3)}% > ${(config.momentumThreshold * 0.5 * 100).toFixed(3)}%)`);
       logger.debug(`     Volume signal long: ${longConditions.volumeSignalLong ? '✅' : '❌'}`);
       
-      if (longConditions.bullishCrossover && longConditions.rsiNotOverbought && 
-          longConditions.positiveMomentum && longConditions.volumeSignalLong) {
+      // Compter les conditions remplies
+      const longConditionsMet = Object.values(longConditions).filter(Boolean).length;
+      const longRequiredConditions = 2; // RÉDUIT: 2 sur 4 suffisent maintenant
+      
+      if (longConditionsMet >= longRequiredConditions) {
         scalpingSignal = 'long';
-        signalStrength = Math.min(0.9, (1 - currentRSI / 100) * 0.4 + Math.abs(currentMomentum) * 0.6);
-        logger.debug(`   ✅ LONG ENTRY SIGNAL confirmed! Strength: ${signalStrength.toFixed(3)}`);
+        signalStrength = Math.min(0.9, (1 - currentRSI / 100) * 0.4 + Math.abs(currentMomentum) * 0.6) * (longConditionsMet / 4);
+        logger.debug(`   ✅ LONG ENTRY SIGNAL confirmed! Conditions: ${longConditionsMet}/4 (requis: ${longRequiredConditions}), Strength: ${signalStrength.toFixed(3)}`);
       } else {
-        // Short entry conditions
+        // Short entry conditions - TRÈS flexible: 2 critères sur 4 suffisent maintenant
         const shortConditions = {
           bearishCrossover,
-          rsiConfirmsDowntrend: currentRSI < config.rsiOverboughtLevel, // Allow oversold during strong downtrends
-          negativeMomentum: currentMomentum < -config.momentumThreshold,
+          rsiConfirmsDowntrend: currentRSI > config.rsiOversoldLevel - 10, // Marge élargie de 10 points
+          negativeMomentum: currentMomentum < -config.momentumThreshold * 0.5, // Seuil réduit de 50%
           volumeSignalShort: volumeResult.signal === 'short'
         };
         
-        logger.debug(`   Short entry conditions:`);
+        logger.debug(`   Short entry conditions (ASSOUPLIES):`);
         logger.debug(`     Bearish crossover: ${shortConditions.bearishCrossover ? '✅' : '❌'}`);
-        logger.debug(`     RSI confirms downtrend: ${shortConditions.rsiConfirmsDowntrend ? '✅' : '❌'} (${currentRSI.toFixed(1)} < ${config.rsiOverboughtLevel})`);
-        logger.debug(`     Negative momentum: ${shortConditions.negativeMomentum ? '✅' : '❌'} (${(currentMomentum * 100).toFixed(3)}% < ${(-config.momentumThreshold * 100).toFixed(3)}%)`);
+        logger.debug(`     RSI confirms downtrend: ${shortConditions.rsiConfirmsDowntrend ? '✅' : '❌'} (${currentRSI.toFixed(1)} > ${config.rsiOversoldLevel - 10})`);
+        logger.debug(`     Negative momentum: ${shortConditions.negativeMomentum ? '✅' : '❌'} (${(currentMomentum * 100).toFixed(3)}% < ${(-config.momentumThreshold * 0.5 * 100).toFixed(3)}%)`);
         logger.debug(`     Volume signal short: ${shortConditions.volumeSignalShort ? '✅' : '❌'}`);
         
-        if (shortConditions.bearishCrossover && shortConditions.rsiConfirmsDowntrend && 
-            shortConditions.negativeMomentum && shortConditions.volumeSignalShort) {
+        // Compter les conditions remplies
+        const shortConditionsMet = Object.values(shortConditions).filter(Boolean).length;
+        const shortRequiredConditions = 2; // RÉDUIT: 2 sur 4 suffisent maintenant
+        
+        if (shortConditionsMet >= shortRequiredConditions) {
           scalpingSignal = 'short';
-          signalStrength = Math.min(0.9, (currentRSI / 100) * 0.4 + Math.abs(currentMomentum) * 0.6);
-          logger.debug(`   ✅ SHORT ENTRY SIGNAL confirmed! Strength: ${signalStrength.toFixed(3)}`);
+          signalStrength = Math.min(0.9, (currentRSI / 100) * 0.4 + Math.abs(currentMomentum) * 0.6) * (shortConditionsMet / 4);
+          logger.debug(`   ✅ SHORT ENTRY SIGNAL confirmed! Conditions: ${shortConditionsMet}/4 (requis: ${shortRequiredConditions}), Strength: ${signalStrength.toFixed(3)}`);
         } else {
-          logger.debug(`   ❌ No entry conditions met`);
+          logger.debug(`   ❌ No entry conditions met - Long: ${longConditionsMet}/4 (requis: ${longRequiredConditions}), Short: ${shortConditionsMet}/4 (requis: ${shortRequiredConditions})`);
         }
       }
     }
@@ -572,7 +638,8 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       }
     }
     
-    const confidence = scalpingSignal ? signalStrength : 0;
+    // Appliquer le poids du volume au calcul de confiance
+    const confidence = scalpingSignal ? (signalStrength * volumeWeight) : Math.min(0.1, volumeResult.confidence * 0.2);
     
     logger.info(`⚡ Scalping Analysis Complete: signal=${scalpingSignal || 'none'}, confidence=${confidence.toFixed(3)}, RSI=${currentRSI.toFixed(1)}, momentum=${(currentMomentum * 100).toFixed(3)}%`);
     
@@ -665,15 +732,15 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     logger.info(`   Harmonic Pattern: ${harmonicResult.confidence.toFixed(3)} × ${weights.harmonic} = ${(harmonicResult.confidence * weights.harmonic).toFixed(3)}`);
     logger.info(`   Volume Analysis: ${volumeResult.confidence.toFixed(3)} × ${weights.volume} = ${(volumeResult.confidence * weights.volume).toFixed(3)}`);
     logger.info(`   Scalping Signals: ${scalpingResult.confidence.toFixed(3)} × ${weights.scalping} = ${(scalpingResult.confidence * weights.scalping).toFixed(3)}`);
-    logger.info(`   TOTAL CONFIDENCE: ${overallConfidence.toFixed(3)} (threshold: ${config.overallConfidenceThreshold})`);
+    logger.info(`   TOTAL CONFIDENCE: ${overallConfidence.toFixed(3)} (adaptive threshold: ${adaptiveThresholds.overall.toFixed(3)})`);
     
-    // Determine recommended action
+    // Determine recommended action using adaptive thresholds
     let recommendedAction: CoordinatedAnalysis['recommendedAction'] = 'wait';
     
     logger.info(`🔍 DECISION LOGIC:`);
-    logger.info(`   Overall confidence: ${overallConfidence.toFixed(3)} vs threshold: ${config.overallConfidenceThreshold}`);
+    logger.info(`   Overall confidence: ${overallConfidence.toFixed(3)} vs adaptive threshold: ${adaptiveThresholds.overall.toFixed(3)}`);
     
-    if (overallConfidence >= config.overallConfidenceThreshold) {
+    if (overallConfidence >= adaptiveThresholds.overall) {
       logger.info(`✅ Confidence threshold met! Evaluating scalping signal...`);
       
       if (scalpingResult.signal === 'long') {
@@ -688,9 +755,9 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
       } else {
         logger.info(`⏳ No clear scalping signal despite high confidence. Waiting...`);
       }
-    } else if (overallConfidence < config.overallConfidenceThreshold * 0.5) {
+    } else if (overallConfidence < adaptiveThresholds.overall * 0.5) {
       recommendedAction = 'hold';
-      logger.info(`⏸️  RECOMMENDED ACTION: HOLD - Confidence too low (${overallConfidence.toFixed(3)} < ${(config.overallConfidenceThreshold * 0.5).toFixed(3)})`);
+      logger.info(`⏸️  RECOMMENDED ACTION: HOLD - Confidence too low (${overallConfidence.toFixed(3)} < ${(adaptiveThresholds.overall * 0.5).toFixed(3)})`);
     } else {
       logger.info(`⏳ RECOMMENDED ACTION: WAIT - Moderate confidence, waiting for clearer signal`);
     }
@@ -783,6 +850,56 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
     return patterns;
   };
   
+  /**
+   * Auto-tuning system to adapt thresholds based on market conditions
+   */
+  let adaptiveThresholds = {
+    elliott: config.trendConfidenceThreshold,
+    pattern: config.patternConfidenceThreshold,
+    volume: config.volumeConfidenceThreshold,
+    overall: config.overallConfidenceThreshold,
+    lastAdjustment: Date.now(),
+    performanceHistory: [] as Array<{ timestamp: number; success: boolean; confidence: number }>
+  };
+
+  const adjustThresholdsBasedOnPerformance = () => {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    
+    // Ajuster les seuils toutes les heures
+    if (now - adaptiveThresholds.lastAdjustment < oneHour) return;
+    
+    const recentPerformance = adaptiveThresholds.performanceHistory.filter(
+      p => now - p.timestamp < oneHour * 6 // Dernières 6 heures
+    );
+    
+    if (recentPerformance.length < 3) return; // Pas assez de données
+    
+    const successRate = recentPerformance.filter(p => p.success).length / recentPerformance.length;
+    const avgConfidence = recentPerformance.reduce((sum, p) => sum + p.confidence, 0) / recentPerformance.length;
+    
+    logger.debug(`🎯 Auto-tuning: Success rate: ${(successRate * 100).toFixed(1)}%, Avg confidence: ${avgConfidence.toFixed(3)}`);
+    
+    // Si trop peu de signaux (succès rate très bas), réduire les seuils
+    if (successRate < 0.1 && avgConfidence > 0.4) {
+      adaptiveThresholds.elliott *= 0.9;
+      adaptiveThresholds.pattern *= 0.9;
+      adaptiveThresholds.volume *= 0.9;
+      adaptiveThresholds.overall *= 0.9;
+      logger.info(`🎯 Auto-tuning: Reducing thresholds due to low signal rate`);
+    }
+    // Si trop de signaux avec performance médiocre, augmenter les seuils
+    else if (successRate > 0.8 && avgConfidence < 0.3) {
+      adaptiveThresholds.elliott = Math.min(adaptiveThresholds.elliott * 1.1, config.trendConfidenceThreshold * 1.5);
+      adaptiveThresholds.pattern = Math.min(adaptiveThresholds.pattern * 1.1, config.patternConfidenceThreshold * 1.5);
+      adaptiveThresholds.volume = Math.min(adaptiveThresholds.volume * 1.1, config.volumeConfidenceThreshold * 1.5);
+      adaptiveThresholds.overall = Math.min(adaptiveThresholds.overall * 1.1, config.overallConfidenceThreshold * 1.5);
+      logger.info(`🎯 Auto-tuning: Increasing thresholds due to poor performance`);
+    }
+    
+    adaptiveThresholds.lastAdjustment = now;
+  };
+
   const strategy: Strategy = {
     getId: () => `coordinated-multi-strategy-${config.symbol}`,
     getName: () => `Coordinated Multi-Strategy (${config.symbol})`,
@@ -824,7 +941,10 @@ export const createCoordinatedMultiStrategy = (config: CoordinatedMultiStrategyC
         
         logger.info(`🔄 Starting coordinated analysis with ${marketDataHistory.length} data points`);
         
-        // Perform coordinated analysis
+        // Apply auto-tuning before analysis
+        adjustThresholdsBasedOnPerformance();
+        
+        // Perform coordinated analysis with adaptive thresholds
         const analysis = coordinateStrategies(marketDataHistory);
         
         logger.info(`📋 COORDINATED ANALYSIS SUMMARY:`);
